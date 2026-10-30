@@ -1,0 +1,6 @@
+{
+  "name": "ESP32Synth WebAssembly Studio",
+  "description": "Port fiel 1:1 para WebAssembly (AudioWorklet) da biblioteca C++ DSP ESP32Synth com síntese polifônica de ponto fixo Q28 e controle em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
