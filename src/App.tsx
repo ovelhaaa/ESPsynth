@@ -27,6 +27,7 @@ export default function App() {
   const [isPlayingDemo, setIsPlayingDemo] = useState<boolean>(false);
   const [isCodeExportOpen, setIsCodeExportOpen] = useState<boolean>(false);
   const demoIntervalRef = useRef<number | null>(null);
+  const lastFreqRef = useRef<number>(NOTES.C4);
 
   // Master Configuration State
   const [masterConfig, setMasterConfig] = useState<MasterConfig>({
@@ -37,6 +38,7 @@ export default function App() {
     bus1CutoffHz: 1600,
     bus1FilterMode: 0,
     bus1ResonanceQ: 200,
+    bus1BwMode: 0,
     bus1WetMix: 255,
     bus1MixLevel: 255,
     globalDSPPatch: GlobalDSPPatch.NONE,
@@ -64,8 +66,10 @@ export default function App() {
     portamentoMs: 0,
     targetBus: 0,
     polyphony: 8,
-    customParam0: 100,
-    customParam1: 200,
+    customParam0: 0,
+    customParam1: 1800,
+    customParam2: 200,
+    customParam3: 0,
   });
 
   // Start / Toggle Audio Engine
@@ -129,15 +133,16 @@ export default function App() {
     engine.setMasterBitcrush(cfg.bitcrush);
     engine.setControlRateHz(cfg.controlRateHz);
 
-    // Bus 1 FX
+    // Bus 1 FX (ep[0..4])
     engine.setBusFXPatch(1, 0, cfg.bus1FXPatch);
     engine.setBusFXParam(1, 0, 0, cfg.bus1CutoffHz);
     engine.setBusFXParam(1, 0, 1, cfg.bus1FilterMode);
     engine.setBusFXParam(1, 0, 2, cfg.bus1ResonanceQ);
+    engine.setBusFXParam(1, 0, 3, cfg.bus1BwMode ?? 0);
     engine.setBusFXParam(1, 0, 4, cfg.bus1WetMix);
     engine.setBusMix(1, cfg.bus1MixLevel);
 
-    // Global Master DSP
+    // Global Master DSP (dp[0..3])
     engine.setCustomDSPPatch(cfg.globalDSPPatch);
     engine.setDSPParam(0, cfg.dspParam0);
     engine.setDSPParam(1, cfg.dspParam1);
@@ -171,14 +176,11 @@ export default function App() {
     if (!isAudioRunning) {
       toggleAudio();
     }
+    const v = engine.playMidiNote(midiNote, freqCentiHz, 255);
     if (voiceConfig.portamentoMs > 0) {
-      // Trigger with slide
-      const v = 0;
-      engine.slideFreqTo(v, freqCentiHz, voiceConfig.portamentoMs);
-      engine.noteOn(v, freqCentiHz, 255);
-    } else {
-      engine.playMidiNote(midiNote, freqCentiHz, 255);
+      engine.slideFreq(v, lastFreqRef.current, freqCentiHz, voiceConfig.portamentoMs);
     }
+    lastFreqRef.current = freqCentiHz;
   }, [isAudioRunning, voiceConfig.portamentoMs, toggleAudio]);
 
   const handleNoteOff = useCallback((midiNote: number) => {
@@ -211,157 +213,160 @@ export default function App() {
     } else {
       switch (preset.id) {
         case 'poly_chords':
-        newVoice = {
-          ...newVoice,
-          waveType: WaveType.WAVE_SAW,
-          customPatch: CustomWavePatch.BASIC,
-          attackMs: 60,
-          decayMs: 100,
-          sustain8Bit: 180,
-          releaseMs: 250,
-          smoothEnv: false,
-          targetBus: 0,
-          polyphony: 8,
-          portamentoMs: 0,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 190,
-          bitcrush: 0,
-          bus1FXPatch: BusFXPatch.NONE,
-          globalDSPPatch: GlobalDSPPatch.NONE,
-        };
-        break;
+          newVoice = {
+            ...newVoice,
+            waveType: WaveType.WAVE_SAW,
+            customPatch: CustomWavePatch.BASIC,
+            attackMs: 60,
+            decayMs: 100,
+            sustain8Bit: 180,
+            releaseMs: 250,
+            smoothEnv: false,
+            targetBus: 0,
+            polyphony: 8,
+            portamentoMs: 0,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 190,
+            bitcrush: 0,
+            bus1FXPatch: BusFXPatch.NONE,
+            globalDSPPatch: GlobalDSPPatch.NONE,
+          };
+          break;
 
-      case 'arp_bass':
-        newVoice = {
-          ...newVoice,
-          customPatch: CustomWavePatch.AA_SAW,
-          attackMs: 10,
-          decayMs: 80,
-          sustain8Bit: 150,
-          releaseMs: 120,
-          vibratoDepthCentiHz: 50,
-          targetBus: 0,
-          portamentoMs: 40,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 210,
-          bitcrush: 0,
-          bus1FXPatch: BusFXPatch.NONE,
-          globalDSPPatch: GlobalDSPPatch.NONE,
-        };
-        break;
+        case 'arp_bass':
+          newVoice = {
+            ...newVoice,
+            customPatch: CustomWavePatch.AA_SAW,
+            attackMs: 10,
+            decayMs: 80,
+            sustain8Bit: 150,
+            releaseMs: 120,
+            vibratoDepthCentiHz: 50,
+            targetBus: 0,
+            portamentoMs: 40,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 210,
+            bitcrush: 0,
+            bus1FXPatch: BusFXPatch.NONE,
+            globalDSPPatch: GlobalDSPPatch.NONE,
+          };
+          break;
 
-      case 'moog_lead':
-        newVoice = {
-          ...newVoice,
-          customPatch: CustomWavePatch.AA_SAW,
-          attackMs: 15,
-          decayMs: 60,
-          sustain8Bit: 200,
-          releaseMs: 120,
-          targetBus: 1, // Route to Bus 1
-          portamentoMs: 60,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 210,
-          bus1FXPatch: BusFXPatch.FX_BIQUAD_FILTER,
-          bus1CutoffHz: 1600,
-          bus1FilterMode: 0, // LPF
-          bus1ResonanceQ: 280, // Q = 2.8
-          bus1WetMix: 255,
-          bus1MixLevel: 255,
-          globalDSPPatch: GlobalDSPPatch.NONE,
-        };
-        break;
+        case 'moog_lead':
+          newVoice = {
+            ...newVoice,
+            customPatch: CustomWavePatch.AA_SAW,
+            attackMs: 15,
+            decayMs: 60,
+            sustain8Bit: 200,
+            releaseMs: 120,
+            targetBus: 1, // Route to Bus 1
+            portamentoMs: 60,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 210,
+            bus1FXPatch: BusFXPatch.FX_BIQUAD_FILTER,
+            bus1CutoffHz: 1600,
+            bus1FilterMode: 0, // LPF
+            bus1ResonanceQ: 280, // Q = 2.8
+            bus1BwMode: 0,
+            bus1WetMix: 255,
+            bus1MixLevel: 255,
+            globalDSPPatch: GlobalDSPPatch.NONE,
+          };
+          break;
 
-      case 'hammond_leslie':
-        newVoice = {
-          ...newVoice,
-          customPatch: CustomWavePatch.HAMMOND_B3,
-          attackMs: 5,
-          decayMs: 40,
-          sustain8Bit: 255,
-          releaseMs: 60,
-          targetBus: 0,
-          portamentoMs: 0,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 190,
-          globalDSPPatch: GlobalDSPPatch.DSP_HAMMOND_LESLIE,
-          dspParam0: 80, // Speed
-          dspParam1: 150, // Depth
-        };
-        break;
+        case 'hammond_leslie':
+          newVoice = {
+            ...newVoice,
+            customPatch: CustomWavePatch.HAMMOND_B3,
+            attackMs: 5,
+            decayMs: 40,
+            sustain8Bit: 255,
+            releaseMs: 60,
+            targetBus: 0,
+            portamentoMs: 0,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 190,
+            globalDSPPatch: GlobalDSPPatch.DSP_HAMMOND_LESLIE,
+            dspParam0: 2, // Tremolo Fast
+            dspParam1: 140, // Spring/Room Reverb Mix
+          };
+          break;
 
-      case 'eks_guitar':
-        newVoice = {
-          ...newVoice,
-          customPatch: CustomWavePatch.EKS_GUITAR,
-          attackMs: 0,
-          decayMs: 500,
-          sustain8Bit: 50,
-          releaseMs: 300,
-          targetBus: 0,
-          portamentoMs: 0,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 200,
-          globalDSPPatch: GlobalDSPPatch.DSP_PEDALBOARD,
-          dspParam0: 120, // Drive
-          dspParam1: 180, // Delay time
-          dspParam2: 100, // Delay feedback
-          dspParam3: 160, // Tone
-        };
-        break;
+        case 'eks_guitar':
+          newVoice = {
+            ...newVoice,
+            customPatch: CustomWavePatch.EKS_GUITAR,
+            attackMs: 0,
+            decayMs: 500,
+            sustain8Bit: 50,
+            releaseMs: 300,
+            targetBus: 0,
+            portamentoMs: 0,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 200,
+            globalDSPPatch: GlobalDSPPatch.DSP_PEDALBOARD,
+            dspParam0: 1, // Distortion ON
+            dspParam1: 1, // Chorus ON
+            dspParam2: 1, // Delay ON
+            dspParam3: 0,
+          };
+          break;
 
-      case 'fm_synth':
-        newVoice = {
-          ...newVoice,
-          customPatch: CustomWavePatch.FM_CUSTOM,
-          attackMs: 20,
-          decayMs: 200,
-          sustain8Bit: 120,
-          releaseMs: 200,
-          customParam0: 200, // Ratio
-          customParam1: 350, // Mod index
-          targetBus: 0,
-          portamentoMs: 0,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 200,
-          bus1FXPatch: BusFXPatch.NONE,
-          globalDSPPatch: GlobalDSPPatch.NONE,
-        };
-        break;
+        case 'fm_synth':
+          newVoice = {
+            ...newVoice,
+            customPatch: CustomWavePatch.FM_CUSTOM,
+            attackMs: 20,
+            decayMs: 200,
+            sustain8Bit: 120,
+            releaseMs: 200,
+            customParam0: 2,  // Ratio Int (2:1)
+            customParam1: 0,  // Ratio Frac (.00)
+            customParam2: 45, // Mod Index Base
+            customParam3: 8,  // Mod Decay
+            targetBus: 0,
+            portamentoMs: 0,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 200,
+            bus1FXPatch: BusFXPatch.NONE,
+            globalDSPPatch: GlobalDSPPatch.NONE,
+          };
+          break;
 
-      case 'chiptune':
-        newVoice = {
-          ...newVoice,
-          waveType: WaveType.WAVE_PULSE,
-          customPatch: CustomWavePatch.BASIC,
-          pulseWidth8Bit: 32, // 12.5% duty
-          attackMs: 5,
-          decayMs: 120,
-          sustain8Bit: 80,
-          releaseMs: 80,
-          targetBus: 0,
-          portamentoMs: 0,
-        };
-        newMaster = {
-          ...newMaster,
-          masterVol: 220,
-          bitcrush: 6, // 6-bit hardware bitcrush
-          bus1FXPatch: BusFXPatch.NONE,
-          globalDSPPatch: GlobalDSPPatch.NONE,
-        };
-        break;
+        case 'chiptune':
+          newVoice = {
+            ...newVoice,
+            waveType: WaveType.WAVE_PULSE,
+            customPatch: CustomWavePatch.BASIC,
+            pulseWidth8Bit: 32, // 12.5% duty
+            attackMs: 5,
+            decayMs: 120,
+            sustain8Bit: 80,
+            releaseMs: 80,
+            targetBus: 0,
+            portamentoMs: 0,
+          };
+          newMaster = {
+            ...newMaster,
+            masterVol: 220,
+            bitcrush: 6, // 6-bit hardware bitcrush
+            bus1FXPatch: BusFXPatch.NONE,
+            globalDSPPatch: GlobalDSPPatch.NONE,
+          };
+          break;
       }
     }
 

@@ -7,16 +7,17 @@ export interface MasterConfig {
   bitcrush: number;
   controlRateHz: number;
   bus1FXPatch: BusFXPatch;
-  bus1CutoffHz: number;
-  bus1FilterMode: number;
-  bus1ResonanceQ: number;
-  bus1WetMix: number;
+  bus1CutoffHz: number;   // ep[0]
+  bus1FilterMode: number; // ep[1]
+  bus1ResonanceQ: number; // ep[2]
+  bus1BwMode: number;     // ep[3]: 0 = Q*100 mode, 1 = Bandwidth Hz mode
+  bus1WetMix: number;     // ep[4]
   bus1MixLevel: number;
   globalDSPPatch: GlobalDSPPatch;
-  dspParam0: number; // e.g. Leslie speed / Pedal drive
-  dspParam1: number; // e.g. Leslie depth / Delay time
-  dspParam2: number; // e.g. Delay feedback
-  dspParam3: number; // e.g. Tone
+  dspParam0: number; // Leslie: SpeedState (0=Stop, 1=Slow, 2=Fast) | Pedalboard: Distortion (0/1)
+  dspParam1: number; // Leslie: Reverb Mix (0..255)                 | Pedalboard: Chorus (0/1)
+  dspParam2: number; // Pedalboard: Delay (0/1)
+  dspParam3: number;
 }
 
 interface MasterPanelProps {
@@ -25,6 +26,16 @@ interface MasterPanelProps {
 }
 
 export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) => {
+  const handleGlobalDSPSelect = (patch: GlobalDSPPatch) => {
+    if (patch === GlobalDSPPatch.DSP_HAMMOND_LESLIE) {
+      onChange({ globalDSPPatch: patch, dspParam0: 2, dspParam1: 140 }); // Fast rotor + 140 reverb
+    } else if (patch === GlobalDSPPatch.DSP_PEDALBOARD) {
+      onChange({ globalDSPPatch: patch, dspParam0: 1, dspParam1: 1, dspParam2: 1 }); // All 3 pedals ON
+    } else {
+      onChange({ globalDSPPatch: patch });
+    }
+  };
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col gap-6">
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
@@ -43,7 +54,6 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           </h3>
 
           <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-lg border border-slate-800">
-            {/* Master Volume (0-255) */}
             <div>
               <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
                 <span>Master Volume (0-255)</span>
@@ -61,7 +71,6 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
               />
             </div>
 
-            {/* Master Bitcrush (0-32 bits) */}
             <div>
               <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
                 <span>Master Bitcrush (Bits)</span>
@@ -77,12 +86,8 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                 onChange={(e) => onChange({ bitcrush: Number(e.target.value) })}
                 className="w-full accent-amber-500 cursor-pointer"
               />
-              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
-                Hardware bitwise mask (0 = off, 4-8 = retro chiptune)
-              </span>
             </div>
 
-            {/* Control Rate Hz */}
             <div>
               <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
                 <span>Control Rate Hz</span>
@@ -97,18 +102,15 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                 onChange={(e) => onChange({ controlRateHz: Number(e.target.value) })}
                 className="w-full accent-emerald-500 cursor-pointer"
               />
-              <span className="text-[10px] text-slate-500 font-mono block mt-0.5">
-                LFO, Arpeggio, and Slide tick evaluation rate
-              </span>
             </div>
           </div>
         </div>
 
-        {/* Section 2: Modular Bus 1 Filter FX */}
+        {/* Section 2: Modular Bus 1 Filter FX (ep[0..4]) */}
         <div className="space-y-4">
           <h3 className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5 uppercase">
             <Filter className="w-3.5 h-3.5 text-blue-400" />
-            Bus 1: Resonant Filter FX
+            Bus 1: Resonant Filter FX (ep[0..4])
           </h3>
 
           <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-lg border border-slate-800">
@@ -122,21 +124,20 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-blue-400 font-semibold focus:outline-none focus:border-blue-500"
               >
                 <option value={BusFXPatch.NONE}>FX_NONE (Bypass)</option>
-                <option value={BusFXPatch.FX_BIQUAD_FILTER}>ESP32Patches::FX_BiquadFilter (Standard)</option>
-                <option value={BusFXPatch.FX_BIQUAD_FILTER_FAST}>ESP32Patches::FX_BiquadFilterFast (Direct Form I)</option>
+                <option value={BusFXPatch.FX_BIQUAD_FILTER}>ESP32Patches::FX_BiquadFilter (TDF-II Q28)</option>
+                <option value={BusFXPatch.FX_BIQUAD_FILTER_FAST}>ESP32Patches::FX_BiquadFilterFast (DF-I)</option>
               </select>
             </div>
 
-            {/* Cutoff Frequency */}
             <div>
               <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
-                <span>Cutoff Frequency</span>
+                <span>ep[0]: Cutoff Frequency</span>
                 <span className="text-blue-400 font-bold">{config.bus1CutoffHz} Hz</span>
               </div>
               <input
                 type="range"
-                min="50"
-                max="10000"
+                min="20"
+                max="16000"
                 step="25"
                 value={config.bus1CutoffHz}
                 onChange={(e) => onChange({ bus1CutoffHz: Number(e.target.value) })}
@@ -144,28 +145,41 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
               />
             </div>
 
-            {/* Filter Mode */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <div>
-                <label className="text-[10px] font-mono text-slate-400 mb-1 block">Mode</label>
+                <label className="text-[10px] font-mono text-slate-400 mb-1 block">ep[1]: Mode</label>
                 <select
                   value={config.bus1FilterMode}
                   onChange={(e) => onChange({ bus1FilterMode: Number(e.target.value) })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200"
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-slate-200"
                 >
-                  <option value={0}>0: Low Pass (LPF)</option>
-                  <option value={1}>1: High Pass (HPF)</option>
-                  <option value={2}>2: Band Pass (BPF)</option>
-                  <option value={3}>3: Notch Filter</option>
+                  <option value={0}>0: LPF</option>
+                  <option value={1}>1: HPF</option>
+                  <option value={2}>2: BPF</option>
+                  <option value={3}>3: Notch</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-[10px] font-mono text-slate-400 mb-1 block">Resonance Q</label>
+                <label className="text-[10px] font-mono text-slate-400 mb-1 block">ep[3]: Unit</label>
+                <select
+                  value={config.bus1BwMode ?? 0}
+                  onChange={(e) => onChange({ bus1BwMode: Number(e.target.value) })}
+                  className="w-full bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-xs font-mono text-slate-200"
+                >
+                  <option value={0}>0: Q * 100</option>
+                  <option value={1}>1: BW (Hz)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono text-slate-400 mb-1 block">
+                  ep[2]: {(config.bus1BwMode ?? 0) === 1 ? 'BW Hz' : 'Q*100'}
+                </label>
                 <input
                   type="number"
                   min="10"
-                  max="1000"
+                  max="2000"
                   step="10"
                   value={config.bus1ResonanceQ}
                   onChange={(e) => onChange({ bus1ResonanceQ: Number(e.target.value) })}
@@ -174,16 +188,15 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
               </div>
             </div>
 
-            {/* Wet Mix & Bus Mix */}
             <div className="grid grid-cols-2 gap-3 pt-1">
               <div>
                 <div className="flex justify-between text-[10px] font-mono text-slate-400 mb-0.5">
-                  <span>Wet (0-255)</span>
+                  <span>ep[4]: Wet (1-255)</span>
                   <span className="text-blue-300 font-bold">{config.bus1WetMix}</span>
                 </div>
                 <input
                   type="range"
-                  min="0"
+                  min="1"
                   max="255"
                   value={config.bus1WetMix}
                   onChange={(e) => onChange({ bus1WetMix: Number(e.target.value) })}
@@ -192,7 +205,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
               </div>
               <div>
                 <div className="flex justify-between text-[10px] font-mono text-slate-400 mb-0.5">
-                  <span>Bus Level</span>
+                  <span>Bus Mix Level</span>
                   <span className="text-blue-300 font-bold">{config.bus1MixLevel}</span>
                 </div>
                 <input
@@ -208,7 +221,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           </div>
         </div>
 
-        {/* Section 3: Global Master DSP */}
+        {/* Section 3: Global Master DSP (1:1 dp[]) */}
         <div className="space-y-4">
           <h3 className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5 uppercase">
             <Sparkles className="w-3.5 h-3.5 text-purple-400" />
@@ -218,66 +231,98 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           <div className="space-y-3 bg-slate-950/60 p-3.5 rounded-lg border border-slate-800">
             <div>
               <label className="text-[11px] font-mono text-slate-400 mb-1 block">
-                Master DSP Algorithm
+                Master DSP Algorithm (setCustomDSP)
               </label>
               <select
                 value={config.globalDSPPatch}
-                onChange={(e) => onChange({ globalDSPPatch: Number(e.target.value) as GlobalDSPPatch })}
+                onChange={(e) => handleGlobalDSPSelect(Number(e.target.value) as GlobalDSPPatch)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs font-mono text-purple-400 font-semibold focus:outline-none focus:border-purple-500"
               >
                 <option value={GlobalDSPPatch.NONE}>Disabled (Clean Output)</option>
-                <option value={GlobalDSPPatch.DSP_HAMMOND_LESLIE}>ESP32Patches::DSP_HammondLeslie (Rotary Speaker)</option>
-                <option value={GlobalDSPPatch.DSP_PEDALBOARD}>ESP32Patches::DSP_Pedalboard (Overdrive + Delay)</option>
+                <option value={GlobalDSPPatch.DSP_HAMMOND_LESLIE}>ESP32Patches::DSP_HammondLeslie (Rotary + Reverb)</option>
+                <option value={GlobalDSPPatch.DSP_PEDALBOARD}>ESP32Patches::DSP_Pedalboard (Comp/OD + Chorus + Delay)</option>
               </select>
             </div>
 
-            {config.globalDSPPatch !== GlobalDSPPatch.NONE ? (
-              <div className="space-y-2 pt-1 border-t border-slate-800">
-                <span className="text-[10px] font-mono text-purple-300 font-bold block uppercase">
-                  Global Parameters (dp[0] .. dp[3])
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-500 block mb-0.5">dp[0] (Drive / Speed)</label>
-                    <input
-                      type="number"
-                      value={config.dspParam0}
-                      onChange={(e) => onChange({ dspParam0: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-500 block mb-0.5">dp[1] (Depth / Time)</label>
-                    <input
-                      type="number"
-                      value={config.dspParam1}
-                      onChange={(e) => onChange({ dspParam1: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200"
-                    />
+            {config.globalDSPPatch === GlobalDSPPatch.DSP_HAMMOND_LESLIE && (
+              <div className="space-y-3 pt-2 border-t border-slate-800">
+                <div>
+                  <label className="text-[10px] font-mono text-purple-300 block mb-1">
+                    dp[0]: Leslie Rotor Speed State
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { val: 0, label: '0: Stop' },
+                      { val: 1, label: '1: Chorale' },
+                      { val: 2, label: '2: Tremolo' },
+                    ].map((s) => (
+                      <button
+                        key={s.val}
+                        onClick={() => onChange({ dspParam0: s.val })}
+                        className={`py-1.5 text-xs font-mono font-bold rounded border cursor-pointer ${
+                          config.dspParam0 === s.val
+                            ? 'bg-purple-600 border-purple-400 text-white'
+                            : 'bg-slate-900 border-slate-800 text-slate-400'
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-500 block mb-0.5">dp[2] (Feedback)</label>
-                    <input
-                      type="number"
-                      value={config.dspParam2}
-                      onChange={(e) => onChange({ dspParam2: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200"
-                    />
+
+                <div>
+                  <div className="flex justify-between text-[10px] font-mono text-purple-200 mb-1">
+                    <span>dp[1]: Spring/Room Reverb Mix (1-255)</span>
+                    <span className="font-bold">{config.dspParam1 || 140}</span>
                   </div>
-                  <div>
-                    <label className="text-[10px] font-mono text-slate-500 block mb-0.5">dp[3] (Tone)</label>
-                    <input
-                      type="number"
-                      value={config.dspParam3}
-                      onChange={(e) => onChange({ dspParam3: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200"
-                    />
-                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="255"
+                    value={config.dspParam1 || 140}
+                    onChange={(e) => onChange({ dspParam1: Number(e.target.value) })}
+                    className="w-full accent-purple-500 cursor-pointer"
+                  />
                 </div>
               </div>
-            ) : (
+            )}
+
+            {config.globalDSPPatch === GlobalDSPPatch.DSP_PEDALBOARD && (
+              <div className="space-y-2.5 pt-2 border-t border-slate-800">
+                <span className="text-[10px] font-mono text-purple-300 font-bold block uppercase">
+                  Stompbox Chain (dp[0..2] Boolean Switches)
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: 'dspParam0' as const, label: 'dp[0]: Overdrive', sub: 'Comp+Drive+Cab' },
+                    { key: 'dspParam1' as const, label: 'dp[1]: Chorus', sub: 'Mod Delay' },
+                    { key: 'dspParam2' as const, label: 'dp[2]: Delay', sub: '16k Slapback' },
+                  ].map((pedal) => {
+                    const isOn = (config[pedal.key] ?? 0) > 0;
+                    return (
+                      <button
+                        key={pedal.key}
+                        onClick={() => onChange({ [pedal.key]: isOn ? 0 : 1 })}
+                        className={`p-2 rounded-lg border text-left transition cursor-pointer ${
+                          isOn
+                            ? 'bg-purple-950/60 border-purple-400 text-purple-200'
+                            : 'bg-slate-900 border-slate-800 text-slate-500'
+                        }`}
+                      >
+                        <div className="text-[11px] font-mono font-bold">{pedal.label}</div>
+                        <div className="text-[9px] font-mono opacity-80">{pedal.sub}</div>
+                        <div className={`mt-1 text-[10px] font-mono font-bold ${isOn ? 'text-emerald-400' : 'text-slate-600'}`}>
+                          {isOn ? '● ACTIVE (1)' : '○ BYPASS (0)'}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {config.globalDSPPatch === GlobalDSPPatch.NONE && (
               <p className="text-xs text-slate-500 font-mono py-2">
                 Pure dry C++ mixer output straight into hardware DAC simulation.
               </p>
