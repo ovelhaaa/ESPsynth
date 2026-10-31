@@ -1,5 +1,12 @@
 import React from 'react';
-import { Volume2, VolumeX, Cpu, Radio, Activity } from 'lucide-react';
+import { Volume2, VolumeX, Cpu, Radio, Activity, Cable, PlugZap } from 'lucide-react';
+
+interface MidiStatusInfo {
+  isConnected: boolean;
+  deviceName: string | null;
+  hasActivity: boolean;
+  isSupported: boolean;
+}
 
 interface HeaderProps {
   isRunning: boolean;
@@ -7,6 +14,8 @@ interface HeaderProps {
   masterVol: number;
   cpuLoad: number;
   onToggleAudio: () => void;
+  midiState?: MidiStatusInfo;
+  onRequestMidi?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,6 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   masterVol,
   cpuLoad,
   onToggleAudio,
+  midiState,
+  onRequestMidi,
 }) => {
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -34,8 +45,54 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Hardware Telemetry Badges */}
+      {/* Hardware Telemetry & Web MIDI Badges */}
       <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+        {/* Web MIDI Status Badge */}
+        {midiState && (
+          <button
+            onClick={onRequestMidi}
+            title={
+              midiState.isConnected
+                ? `Connected to: ${midiState.deviceName || 'USB MIDI'}`
+                : midiState.isSupported
+                ? 'Web MIDI active. Click to scan for USB MIDI keyboards'
+                : 'Web MIDI API not supported in this browser'
+            }
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md border transition-all cursor-pointer ${
+              midiState.isConnected
+                ? midiState.hasActivity
+                  ? 'bg-emerald-950/90 border-emerald-400 text-emerald-200 shadow-[0_0_12px_rgba(52,211,153,0.4)] scale-[1.02]'
+                  : 'bg-emerald-950/40 border-emerald-700/60 text-emerald-300'
+                : midiState.isSupported
+                ? 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-300 hover:border-slate-700'
+                : 'bg-slate-950 border-slate-900 text-slate-600 opacity-60'
+            }`}
+          >
+            {midiState.isConnected ? (
+              <PlugZap className={`w-3.5 h-3.5 ${midiState.hasActivity ? 'text-emerald-300 animate-bounce' : 'text-emerald-400'}`} />
+            ) : (
+              <Cable className="w-3.5 h-3.5 text-slate-500" />
+            )}
+
+            <div className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full transition-all ${
+                midiState.isConnected
+                  ? midiState.hasActivity
+                    ? 'bg-emerald-300 shadow-[0_0_8px_#6ee7b7] scale-125'
+                    : 'bg-emerald-500'
+                  : 'bg-slate-600'
+              }`} />
+              <span className="font-semibold max-w-[130px] sm:max-w-[180px] truncate">
+                {midiState.isConnected
+                  ? `MIDI: ${midiState.deviceName || 'Connected'}`
+                  : midiState.isSupported
+                  ? 'MIDI: Scan'
+                  : 'MIDI: N/A'}
+              </span>
+            </div>
+          </button>
+        )}
+
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300">
           <Radio className="w-3.5 h-3.5 text-blue-400" />
           <span className="text-slate-500">SR:</span>

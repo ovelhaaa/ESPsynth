@@ -13,6 +13,10 @@ export function centiHzToHz(centiHz: number): number {
   return centiHz / 100;
 }
 
+export function transposeCentiHz(baseCentiHz: number, semitones: number): number {
+  return Math.round(baseCentiHz * Math.pow(2, semitones / 12));
+}
+
 export function centiHzToNoteName(centiHz: number): string {
   if (centiHz <= 0) return '---';
   const hz = centiHz / 100;

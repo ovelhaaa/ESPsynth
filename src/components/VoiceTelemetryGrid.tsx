@@ -1,18 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { VoiceTelemetry, EnvState, WaveType } from '../audio/types';
 import { centiHzToNoteName } from '../audio/notes';
+import { Activity, Layers } from 'lucide-react';
 
 interface VoiceTelemetryGridProps {
   telemetryVoices: VoiceTelemetry[];
   maxVoicesToShow?: number;
 }
 
-const ENV_STATE_NAMES: Record<EnvState, { name: string; color: string }> = {
-  [EnvState.ENV_IDLE]: { name: 'IDLE', color: 'text-slate-500 bg-slate-900 border-slate-800' },
-  [EnvState.ENV_ATTACK]: { name: 'ATTACK', color: 'text-amber-400 bg-amber-950/60 border-amber-800/60' },
-  [EnvState.ENV_DECAY]: { name: 'DECAY', color: 'text-blue-400 bg-blue-950/60 border-blue-800/60' },
-  [EnvState.ENV_SUSTAIN]: { name: 'SUSTAIN', color: 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60' },
-  [EnvState.ENV_RELEASE]: { name: 'RELEASE', color: 'text-purple-400 bg-purple-950/60 border-purple-800/60' },
+const ENV_STATE_NAMES: Record<EnvState, { name: string; color: string; badge: string }> = {
+  [EnvState.ENV_IDLE]: {
+    name: 'IDLE',
+    color: 'text-slate-500 bg-slate-900 border-slate-800',
+    badge: 'bg-slate-800 text-slate-500',
+  },
+  [EnvState.ENV_ATTACK]: {
+    name: 'ATTACK',
+    color: 'text-amber-400 bg-amber-950/70 border-amber-800/80',
+    badge: 'bg-amber-500 text-slate-950 font-black',
+  },
+  [EnvState.ENV_DECAY]: {
+    name: 'DECAY',
+    color: 'text-blue-400 bg-blue-950/70 border-blue-800/80',
+    badge: 'bg-blue-500 text-slate-950 font-black',
+  },
+  [EnvState.ENV_SUSTAIN]: {
+    name: 'SUSTAIN',
+    color: 'text-emerald-400 bg-emerald-950/70 border-emerald-800/80',
+    badge: 'bg-emerald-500 text-slate-950 font-black',
+  },
+  [EnvState.ENV_RELEASE]: {
+    name: 'RELEASE',
+    color: 'text-purple-400 bg-purple-950/70 border-purple-800/80',
+    badge: 'bg-purple-500 text-slate-950 font-black',
+  },
 };
 
 const WAVE_TYPE_NAMES: Record<number, string> = {
@@ -28,82 +49,119 @@ const WAVE_TYPE_NAMES: Record<number, string> = {
 
 export const VoiceTelemetryGrid: React.FC<VoiceTelemetryGridProps> = ({
   telemetryVoices,
-  maxVoicesToShow = 8,
+  maxVoicesToShow = 16,
 }) => {
-  const voiceMap = new Map<number, VoiceTelemetry>();
-  telemetryVoices.forEach(v => voiceMap.set(v.voice, v));
+  const [viewCount, setViewCount] = useState<number>(16);
 
-  const voices = Array.from({ length: maxVoicesToShow }, (_, i) => {
-    return voiceMap.get(i) || {
-      voice: i,
-      active: false,
-      freqCentiHz: 0,
-      env8Bit: 0,
-      output8Bit: 0,
-      envState: EnvState.ENV_IDLE,
-      waveType: WaveType.WAVE_SINE,
-    };
+  const voiceMap = new Map<number, VoiceTelemetry>();
+  telemetryVoices.forEach((v) => voiceMap.set(v.voice, v));
+
+  const voices = Array.from({ length: viewCount }, (_, i) => {
+    return (
+      voiceMap.get(i) || {
+        voice: i,
+        active: false,
+        freqCentiHz: 0,
+        env8Bit: 0,
+        output8Bit: 0,
+        envState: EnvState.ENV_IDLE,
+        waveType: WaveType.WAVE_SINE,
+      }
+    );
   });
 
+  const activeCount = telemetryVoices.filter((v) => v.active).length;
+
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-          Voice Engine Telemetry (C++ Internal State)
-        </h3>
-        <span className="text-[11px] font-mono text-slate-500">
-          Showing voices 0 &ndash; {maxVoicesToShow - 1}
-        </span>
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-emerald-400" />
+          <h3 className="text-xs font-mono font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+            16-Voice C++ Hardware Matrix Telemetry
+            <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800/60 text-emerald-300">
+              {activeCount} / {viewCount} Active
+            </span>
+          </h3>
+        </div>
+
+        {/* 8 vs 16 Voices View Selector */}
+        <div className="flex items-center gap-1.5 bg-slate-950 p-0.5 rounded border border-slate-800 text-[10px] font-mono">
+          <button
+            onClick={() => setViewCount(8)}
+            className={`px-2 py-0.5 rounded transition cursor-pointer font-bold ${
+              viewCount === 8
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            8 Voices
+          </button>
+          <button
+            onClick={() => setViewCount(16)}
+            className={`px-2 py-0.5 rounded transition cursor-pointer font-bold ${
+              viewCount === 16
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            16 Voices (Full)
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5">
+      {/* Grid of 16 voices */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2">
         {voices.map((v) => {
           const stateInfo = ENV_STATE_NAMES[v.envState] || ENV_STATE_NAMES[EnvState.ENV_IDLE];
           const waveLabel = WAVE_TYPE_NAMES[v.waveType] || 'WAVE';
+          const meterPercent = Math.min(100, Math.round((v.output8Bit / 255) * 100));
 
           return (
             <div
               key={v.voice}
-              className={`p-2.5 rounded-lg border font-mono transition-all duration-75 flex flex-col justify-between gap-1.5 ${
+              className={`p-2 rounded-lg border font-mono transition-all duration-75 flex flex-col justify-between gap-1.5 relative overflow-hidden ${
                 v.active
-                  ? 'bg-slate-950 border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.15)]'
-                  : 'bg-slate-950/60 border-slate-800/80 text-slate-600'
+                  ? 'bg-slate-950 border-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)] ring-1 ring-emerald-500/30'
+                  : 'bg-slate-950/50 border-slate-800/70 text-slate-600'
               }`}
             >
-              <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center justify-between text-[10px]">
                 <span className={`font-bold ${v.active ? 'text-emerald-300' : 'text-slate-500'}`}>
                   V{v.voice}
                 </span>
-                <span className={`text-[9px] px-1.5 py-0.2 rounded border font-semibold ${stateInfo.color}`}>
+                <span className={`text-[8px] px-1 py-0.2 rounded font-semibold ${stateInfo.color}`}>
                   {stateInfo.name}
                 </span>
               </div>
 
               <div className="space-y-0.5">
-                <div className="text-xs font-bold text-slate-200 truncate">
+                <div className="text-[11px] font-bold text-slate-200 truncate">
                   {v.active && v.freqCentiHz > 0 ? (
                     <>
-                      <span>{centiHzToNoteName(v.freqCentiHz)}</span>
-                      <span className="text-[10px] text-slate-400 ml-1 font-normal">
-                        ({v.freqCentiHz} cHz)
+                      <span className="text-emerald-300 font-extrabold">{centiHzToNoteName(v.freqCentiHz)}</span>
+                      <span className="text-[9px] text-slate-400 ml-1 font-normal font-mono">
+                        {v.freqCentiHz}c
                       </span>
                     </>
                   ) : (
                     <span className="text-slate-600">---</span>
                   )}
                 </div>
-                <div className="text-[10px] text-slate-400 flex justify-between">
+
+                <div className="text-[9px] text-slate-400 flex justify-between">
                   <span>{waveLabel}</span>
-                  <span>Env: {v.env8Bit}</span>
+                  <span>Env:{v.env8Bit}</span>
                 </div>
               </div>
 
-              {/* Mini level bar */}
+              {/* Mini audio level meter bar */}
               <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
                 <div
-                  className="h-full bg-emerald-400 transition-all duration-75"
-                  style={{ width: `${Math.min(100, Math.round((v.output8Bit / 255) * 100))}%` }}
+                  className={`h-full transition-all duration-75 ${
+                    v.active ? 'bg-gradient-to-r from-emerald-500 to-cyan-400' : 'bg-slate-800'
+                  }`}
+                  style={{ width: `${meterPercent}%` }}
                 />
               </div>
             </div>

@@ -6,6 +6,7 @@ interface VirtualKeyboardProps {
   onNoteOn: (midiNote: number, freqCentiHz: number) => void;
   onNoteOff: (midiNote: number) => void;
   activeVoicesMidiNotes?: number[];
+  midiConnectedDevice?: string | null;
 }
 
 // Computer keyboard mapping
@@ -33,10 +34,10 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
   onNoteOn,
   onNoteOff,
   activeVoicesMidiNotes = [],
+  midiConnectedDevice,
 }) => {
   const [baseOctave, setBaseOctave] = useState<number>(4);
   const [pressedNotes, setPressedNotes] = useState<Set<number>>(new Set());
-  const [midiConnected, setMidiConnected] = useState<string | null>(null);
 
   // Trigger note on
   const handleNoteDown = useCallback((midiNote: number) => {
@@ -97,34 +98,6 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
     };
   }, [baseOctave, handleNoteDown, handleNoteUp]);
 
-  // Web MIDI API support
-  useEffect(() => {
-    if (navigator.requestMIDIAccess) {
-      navigator.requestMIDIAccess().then((midiAccess) => {
-        let deviceName: string | null = null;
-        for (const input of midiAccess.inputs.values()) {
-          deviceName = input.name || 'MIDI Device';
-          input.onmidimessage = (msg) => {
-            const data = msg.data;
-            if (!data || data.length < 3) return;
-            const status = data[0];
-            const note = data[1];
-            const velocity = data[2];
-            const command = status >> 4;
-            if (command === 9 && velocity > 0) { // Note On
-              handleNoteDown(note);
-            } else if (command === 8 || (command === 9 && velocity === 0)) { // Note Off
-              handleNoteUp(note);
-            }
-          };
-        }
-        if (deviceName) setMidiConnected(deviceName);
-      }).catch(() => {
-        // MIDI not available or denied
-      });
-    }
-  }, [handleNoteDown, handleNoteUp]);
-
   // Generate 25 keys (2 octaves + 1 note)
   const startMidi = (baseOctave + 1) * 12; // Octave C
   const totalKeys = 25;
@@ -139,7 +112,7 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
   });
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col gap-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col gap-4 shadow-xl">
       {/* Octave Selector & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -147,9 +120,10 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
           <h2 className="text-sm font-mono font-bold text-slate-200 uppercase tracking-wider">
             Virtual Keyboard (CentiHz Pitch Trigger)
           </h2>
-          {midiConnected && (
-            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full">
-              MIDI: {midiConnected}
+          {midiConnectedDevice && (
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              MIDI: {midiConnectedDevice}
             </span>
           )}
         </div>
@@ -159,8 +133,9 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
           <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-1">
             <button
               onClick={() => setBaseOctave((o) => Math.max(1, o - 1))}
-              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-              aria-label="Octave Down (Z)"
+              disabled={baseOctave <= 1}
+              className="p-1 text-slate-400 hover:text-slate-100 disabled:opacity-30 disabled:hover:text-slate-400 cursor-pointer"
+              aria-label="Octave Down"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -168,22 +143,23 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
               C{baseOctave} &ndash; C{baseOctave + 2}
             </span>
             <button
-              onClick={() => setBaseOctave((o) => Math.min(7, o + 1))}
-              className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
-              aria-label="Octave Up (X)"
+              onClick={() => setBaseOctave((o) => Math.min(6, o + 1))}
+              disabled={baseOctave >= 6}
+              className="p-1 text-slate-400 hover:text-slate-100 disabled:opacity-30 disabled:hover:text-slate-400 cursor-pointer"
+              aria-label="Octave Up"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
           <span className="text-[11px] font-mono text-slate-500 hidden sm:inline">
-            [Keys: A-K, Z/X octaves]
+            (Keys: A-K, Z/X to shift)
           </span>
         </div>
       </div>
 
-      {/* Visual Piano Keyboard */}
-      <div className="relative w-full overflow-x-auto select-none pb-2">
-        <div className="flex relative h-36 min-w-[620px] bg-slate-950 p-2 rounded-xl border border-slate-800 shadow-inner">
+      {/* Keyboard Bed */}
+      <div className="relative h-44 bg-slate-950 rounded-lg border border-slate-800 p-2 overflow-hidden shadow-inner select-none">
+        <div className="relative w-full h-full flex">
           {keys.map((k) => {
             const isPressed = pressedNotes.has(k.midi) || activeVoicesMidiNotes.includes(k.midi);
 
@@ -220,7 +196,6 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
                 </button>
               );
             } else {
-              // Black key positioned absolutely relative to its white neighbour
               return (
                 <button
                   key={k.midi}
@@ -243,7 +218,6 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
                       : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
                   }`}
                   style={{
-                    // Position black keys over white key boundaries
                     left: `${getBlackKeyOffsetPercentage(k.midi, startMidi)}%`,
                   }}
                   aria-label={`${k.noteName}${k.octave} (${k.centiHz} cHz)`}
@@ -266,13 +240,11 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
 
 // Helper for aligning black keys on top of white keys
 function getBlackKeyOffsetPercentage(midi: number, startMidi: number): number {
-  // Count how many white keys occur before this midi note
   let whiteCountBefore = 0;
   for (let m = startMidi; m < midi; m++) {
     const isBlack = [1, 3, 6, 8, 10].includes(m % 12);
     if (!isBlack) whiteCountBefore++;
   }
-  // Total white keys in 25-note span is 15
   const totalWhite = 15;
   const whiteKeyWidthPercent = 100 / totalWhite;
   return (whiteCountBefore * whiteKeyWidthPercent) - (whiteKeyWidthPercent * 0.28);

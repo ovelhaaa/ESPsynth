@@ -30,6 +30,7 @@ export class ESP32SynthEngine {
   private scriptNode: ScriptProcessorNode | null = null;
   private wasmModule: WebAssembly.Module | null = null;
   private fallbackInstance: WebAssembly.Instance | null = null;
+  private fallbackScratchNotesPtr: number = 0;
   private isInitialized = false;
   private isWorkletRunning = false;
   private telemetryCallbacks: Set<(t: EngineTelemetry) => void> = new Set();
@@ -106,7 +107,7 @@ export class ESP32SynthEngine {
 
           try {
             await this.audioCtx.audioWorklet.addModule(workletUrl);
-          } catch (blobErr) {
+          } catch {
             // Fallback to static path if Blob URL was blocked
             await this.audioCtx.audioWorklet.addModule('/esp32synth-worklet.js');
           }
@@ -146,6 +147,12 @@ export class ESP32SynthEngine {
         const exp = this.fallbackInstance.exports as any;
         exp.synth_init(this.audioCtx.sampleRate);
         exp.synth_setMasterVolume(200);
+
+        if (typeof exp.synth_alloc_float_buffer === 'function') {
+          this.fallbackScratchNotesPtr = exp.synth_alloc_float_buffer(32);
+        } else if (typeof exp.malloc === 'function') {
+          this.fallbackScratchNotesPtr = exp.malloc(32 * 4);
+        }
 
         this.scriptNode = this.audioCtx.createScriptProcessor(512, 0, 2);
         this.scriptNode.onaudioprocess = (audioEvent) => {
@@ -246,6 +253,17 @@ export class ESP32SynthEngine {
         case 'SET_GLOBAL_DSP_PATCH': exp.synth_setCustomDSPPatch(msg.dspPatchId); break;
         case 'SET_DSP_PARAM': exp.synth_setDSPParam(msg.paramId, msg.value); break;
         case 'SET_CUSTOM_PARAM': exp.synth_setCustomParam(msg.voice, msg.paramId, msg.value); break;
+        case 'SET_ARPEGGIO':
+          if (Array.isArray(msg.notes) && msg.notes.length > 0 && this.fallbackScratchNotesPtr) {
+            const notesLen = Math.min(msg.notes.length, 16);
+            const u32 = new Uint32Array(exp.memory.buffer, this.fallbackScratchNotesPtr, notesLen);
+            for (let i = 0; i < notesLen; i++) u32[i] = msg.notes[i];
+            exp.synth_setArpeggio(msg.voice, msg.durationMs, this.fallbackScratchNotesPtr, notesLen);
+          }
+          break;
+        case 'DETACH_ARPEGGIO':
+          exp.synth_detachArpeggio(msg.voice);
+          break;
         case 'STOP_ALL':
           for (let v = 0; v < 80; v++) {
             if (exp.synth_isVoiceActive(v)) exp.synth_noteOff(v);
