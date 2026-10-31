@@ -16,6 +16,8 @@ import {
   TrendingUp,
   Volume2,
   CheckCircle2,
+  Lightbulb,
+  Info,
 } from 'lucide-react';
 import { EnvelopeVisualizer } from './EnvelopeVisualizer';
 
@@ -56,6 +58,7 @@ interface AlgorithmCardDef {
   cpuTag: string;
   charTag: string;
   description: string;
+  usageTip: string;
   icon: React.ComponentType<{ className?: string }>;
   accentColor: string;
   borderActive: string;
@@ -68,7 +71,8 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     cppSymbol: 'synth.setWave(v, type)',
     cpuTag: '~0.8% CPU',
     charTag: 'Raw Integer',
-    description: 'Native 16-bit hardware waveforms (Saw, Pulse, Sine, Triangle, Noise).',
+    description: 'Osciladores nativos de 16-bit com formas de onda inteiras básicas.',
+    usageTip: 'Dica: Ideal para jogos retro 8-bit, chiptunes e uso com menor sobrecarga na CPU do ESP32.',
     icon: Waves,
     accentColor: 'text-slate-300',
     borderActive: 'border-slate-400 bg-slate-900 shadow-slate-900/50',
@@ -79,7 +83,8 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     cppSymbol: 'ESP32Patches::AA_Saw',
     cpuTag: '~1.2% CPU',
     charTag: 'Anti-Aliased',
-    description: 'Zero-branch PolyBLEP algorithm. Crystal-clear highs without Nyquist foldback.',
+    description: 'Dente de serra com suavização PolyBLEP em ponto fixo Q15 nas descontinuidades.',
+    usageTip: 'Dica: Perfeito para leads cortantes e acordes sem chiado digital mesmo em notas ultra agudas.',
     icon: TrendingUp,
     accentColor: 'text-emerald-400',
     borderActive: 'border-emerald-400 bg-emerald-950/40 shadow-emerald-900/40',
@@ -90,7 +95,8 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     cppSymbol: 'ESP32Patches::AA_Pulse',
     cpuTag: '~1.4% CPU',
     charTag: 'PWM Anti-Aliased',
-    description: 'Dual PolyBLEP edge smoothing with dynamic 8-bit pulse width duty cycle.',
+    description: 'Onda pulso com bordas PolyBLEP duplas e modulação de largura de pulso de 8-bit.',
+    usageTip: 'Dica: Excelente para baixos encorpados e timbres com PWM clássicos de sintetizadores analógicos.',
     icon: Square,
     accentColor: 'text-emerald-400',
     borderActive: 'border-emerald-400 bg-emerald-950/40 shadow-emerald-900/40',
@@ -101,7 +107,8 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     cppSymbol: 'ESP32Patches::DSP_BiquadOscFast',
     cpuTag: '~3.45% CPU',
     charTag: 'Direct Form I',
-    description: 'High-speed resonant filter directly on oscillator with integer LUT coefficients.',
+    description: 'Filtro biquad ressonante aplicado diretamente no oscilador com coeficientes LUT inteiros.',
+    usageTip: 'Dica: Melhor para polifonia mais alta exigindo filtro passa-baixas e ressonância calculada rápida.',
     icon: Gauge,
     accentColor: 'text-amber-400',
     borderActive: 'border-amber-400 bg-amber-950/40 shadow-amber-900/40',
@@ -112,7 +119,8 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     cppSymbol: 'ESP32Patches::DSP_BiquadOsc',
     cpuTag: '~4.35% CPU',
     charTag: 'TDF-II Q28 64-bit',
-    description: 'Studio-grade Transposed Direct Form II with 64-bit accumulators and zero drift.',
+    description: 'Filtro Transposed Direct Form II com acumuladores de 64 bits e drift zero em graves.',
+    usageTip: 'Dica: Máxima fidelidade analógica para basslines ácidas com ressonância alta sem clipping.',
     icon: Flame,
     accentColor: 'text-orange-400',
     borderActive: 'border-orange-400 bg-orange-950/40 shadow-orange-900/40',
@@ -122,8 +130,9 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     name: 'FM_Custom (2-Op FM)',
     cppSymbol: 'ESP32Patches::FM_Custom',
     cpuTag: '~3.90% CPU',
-    charTag: 'Modulator Envelope',
-    description: 'True sine-on-sine 2-operator FM with independent ratio and mod envelope decay.',
+    charTag: 'Síntese FM',
+    description: 'Síntese FM de 2 operadores senoidais com razão harmônica e envelope decay dedicado.',
+    usageTip: 'Dica: Ideal para sinos metálicos, pianos elétricos clássicos estilo DX7 e baixos FM percussivos.',
     icon: Radio,
     accentColor: 'text-purple-400',
     borderActive: 'border-purple-400 bg-purple-950/40 shadow-purple-900/40',
@@ -133,8 +142,9 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     name: 'HammondB3 (Tonewheel)',
     cppSymbol: 'ESP32Patches::HammondB3',
     cpuTag: '~4.80% CPU',
-    charTag: '9-Drawbar Additive',
-    description: 'Additive synthesis summing 9 vintage tonewheel harmonics with 32-bit math protection.',
+    charTag: '9 Drawbars Aditivos',
+    description: 'Síntese aditiva somando 9 harmônicos senoidais com proteção de overflow de 32-bit.',
+    usageTip: 'Dica: Autêntico som de órgão gospel e rock. Combine com o patch Global DSP_HammondLeslie.',
     icon: Music,
     accentColor: 'text-amber-400',
     borderActive: 'border-amber-400 bg-amber-950/40 shadow-amber-900/40',
@@ -144,8 +154,9 @@ const ALGORITHM_CARDS: AlgorithmCardDef[] = [
     name: 'EKS_Guitar (Karplus)',
     cppSymbol: 'ESP32Patches::EKS_Guitar',
     cpuTag: '~4.10% CPU',
-    charTag: 'Physical Resonator',
-    description: 'Extended Karplus-Strong string physical model with dedicated internal delay lines.',
+    charTag: 'Corda Ressonante',
+    description: 'Modelo físico Karplus-Strong estendido com delay lines dedicadas para cordas dedilhadas.',
+    usageTip: 'Dica: Simulação realista de violão e guitarra elétrica. Combine com o efeito DSP_Pedalboard.',
     icon: Volume2,
     accentColor: 'text-cyan-400',
     borderActive: 'border-cyan-400 bg-cyan-950/40 shadow-cyan-900/40',
@@ -414,7 +425,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
             1. Core Synthesis Algorithm Selector (ESP32Synth_Patches.hpp)
           </h3>
           <span className="text-[10px] font-mono text-slate-500">
-            Select an algorithm to dynamically expose its C++ contextual parameters (cp[0..3])
+            Clique no card para ativar o algoritmo e carregar seus parâmetros dinâmicos (cp[0..3])
           </span>
         </div>
 
@@ -464,6 +475,12 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                 <p className="text-[11px] text-slate-400 leading-relaxed font-sans line-clamp-2">
                   {card.description}
                 </p>
+
+                {/* Dica rápida de uso */}
+                <div className="bg-slate-900/90 rounded p-1.5 border border-slate-800/80 text-[10px] font-sans text-slate-300 flex items-start gap-1.5">
+                  <Lightbulb className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <span className="leading-tight">{card.usageTip}</span>
+                </div>
 
                 {/* Badges footer */}
                 <div className="flex items-center justify-between text-[10px] font-mono pt-2 border-t border-slate-800/80">
@@ -694,31 +711,47 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
           </div>
         </div>
 
-        {/* Column 3: Contextual Parameters cp[0..3] & LFOs */}
+        {/* Column 3: Dynamic Contextual Parameters cp[0..3] & LFOs */}
         <div className="space-y-4">
-          <h3 className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5 uppercase">
-            <Sliders className="w-3.5 h-3.5 text-blue-400" />
-            4. Contextual Parameters (cp[0..3]) & LFOs
-          </h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-mono font-bold text-slate-300 flex items-center gap-1.5 uppercase">
+              <Sliders className="w-3.5 h-3.5 text-blue-400" />
+              4. Contextual Parameters (cp[0..3])
+            </h3>
+            <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">
+              {config.customPatch === CustomWavePatch.FM_CUSTOM
+                ? 'FM Mode'
+                : config.customPatch === CustomWavePatch.DSP_BIQUAD || config.customPatch === CustomWavePatch.DSP_BIQUAD_FAST
+                ? 'Biquad Mode'
+                : config.customPatch === CustomWavePatch.HAMMOND_B3
+                ? 'Organ Mode'
+                : config.customPatch === CustomWavePatch.EKS_GUITAR
+                ? 'String Model'
+                : 'Direct Mode'}
+            </span>
+          </div>
 
           <div className="space-y-3 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-            {/* FM_Custom Controls */}
+            {/* Dynamic Context Parameters (cp[0..3]) based on Selected Patch */}
             {config.customPatch === CustomWavePatch.FM_CUSTOM && (
               <div className="p-3.5 bg-purple-950/30 border border-purple-800/60 rounded-lg space-y-3">
                 <div className="flex items-center justify-between text-xs font-mono text-purple-300 font-bold">
                   <div className="flex items-center gap-1.5">
                     <Radio className="w-4 h-4 text-purple-400" />
-                    <span>FM_Custom Parameters</span>
+                    <span>2-Operator FM Parameters</span>
                   </div>
                   <span className="text-[10px] bg-purple-900/60 px-2 py-0.5 rounded text-purple-200">
                     Ratio {config.customParam0 || 1}.{String(config.customParam1 || 0).padStart(2, '0')}:1
                   </span>
                 </div>
 
+                {/* cp[0]: Harmonic Ratio */}
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-purple-200 mb-1">
-                    <span>cp[0]: Modulator Ratio Integer</span>
-                    <span className="font-bold">{config.customParam0 || 1}:1</span>
+                    <span className="font-semibold text-purple-300">cp[0]: Harmonic Ratio (Integer)</span>
+                    <span className="font-bold text-white bg-purple-900 px-1.5 py-0.2 rounded">
+                      {config.customParam0 || 1}:1
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -728,12 +761,18 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam0: Number(e.target.value) })}
                     className="w-full accent-purple-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Multiplicador harmônico inteiro da frequência moduladora.
+                  </span>
                 </div>
 
+                {/* cp[1]: Fine Ratio */}
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-purple-200 mb-1">
-                    <span>cp[1]: Modulator Ratio Fractional (0 - 99%)</span>
-                    <span className="font-bold">.{String(config.customParam1 || 0).padStart(2, '0')}</span>
+                    <span className="font-semibold text-purple-300">cp[1]: Fine Ratio (Fractional %)</span>
+                    <span className="font-bold text-white bg-purple-900 px-1.5 py-0.2 rounded">
+                      .{String(config.customParam1 || 0).padStart(2, '0')}%
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -743,12 +782,18 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam1: Number(e.target.value) })}
                     className="w-full accent-purple-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Deslocamento fino fracionário (0.00 a 0.99) para batimento harmônico.
+                  </span>
                 </div>
 
+                {/* cp[2]: Mod Index */}
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-purple-200 mb-1">
-                    <span>cp[2]: Mod Index Base (Timbre Brightness)</span>
-                    <span className="font-bold">{config.customParam2 ?? 45}</span>
+                    <span className="font-semibold text-purple-300">cp[2]: Mod Index (Brightness)</span>
+                    <span className="font-bold text-white bg-purple-900 px-1.5 py-0.2 rounded">
+                      {config.customParam2 ?? 45} idx
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -758,12 +803,18 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam2: Number(e.target.value) })}
                     className="w-full accent-purple-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Profundidade base de modulação de fase e dispersão de bandas laterais.
+                  </span>
                 </div>
 
+                {/* cp[3]: Modulator Decay */}
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-purple-200 mb-1">
-                    <span>cp[3]: Modulator Decay Rate</span>
-                    <span className="font-bold">{config.customParam3 ?? 5}</span>
+                    <span className="font-semibold text-purple-300">cp[3]: Modulator Env Decay Rate</span>
+                    <span className="font-bold text-white bg-purple-900 px-1.5 py-0.2 rounded">
+                      {config.customParam3 ?? 5} decay
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -773,6 +824,9 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam3: Number(e.target.value) })}
                     className="w-full accent-purple-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Queda dinâmica do brilho metálico ao longo do tempo por frame de áudio.
+                  </span>
                 </div>
               </div>
             )}
@@ -784,7 +838,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                 <div className="flex items-center justify-between text-xs font-mono text-emerald-300 font-bold">
                   <div className="flex items-center gap-1.5">
                     <Activity className="w-4 h-4 text-emerald-400" />
-                    <span>BiquadOsc Parameters</span>
+                    <span>BiquadOsc Context Parameters</span>
                   </div>
                   <span className="text-[10px] bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-200">
                     {config.customPatch === CustomWavePatch.DSP_BIQUAD ? 'TDF-II Q28' : 'DF-I Fast'}
@@ -793,11 +847,13 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="text-[10px] font-mono text-emerald-200 block mb-1">cp[0]: Osc Wave</label>
+                    <label className="text-[10px] font-mono text-emerald-300 font-semibold block mb-1">
+                      cp[0]: Osc Waveform
+                    </label>
                     <select
                       value={config.customParam0 || 0}
                       onChange={(e) => onChange({ customParam0: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-emerald-700/60 rounded px-2 py-1 text-xs font-mono text-emerald-200"
+                      className="w-full bg-slate-900 border border-emerald-700/60 rounded px-2 py-1 text-xs font-mono text-emerald-200 cursor-pointer"
                     >
                       <option value={0}>0: PolyBLEP Saw</option>
                       <option value={1}>1: PolyBLEP Pulse</option>
@@ -806,24 +862,28 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-mono text-emerald-200 block mb-1">cp[3]: Filter Mode</label>
+                    <label className="text-[10px] font-mono text-emerald-300 font-semibold block mb-1">
+                      cp[3]: Filter Mode
+                    </label>
                     <select
                       value={config.customParam3 ?? 0}
                       onChange={(e) => onChange({ customParam3: Number(e.target.value) })}
-                      className="w-full bg-slate-900 border border-emerald-700/60 rounded px-2 py-1 text-xs font-mono text-emerald-200"
+                      className="w-full bg-slate-900 border border-emerald-700/60 rounded px-2 py-1 text-xs font-mono text-emerald-200 cursor-pointer"
                     >
                       <option value={0}>0: Low Pass (LPF)</option>
                       <option value={1}>1: High Pass (HPF)</option>
                       <option value={2}>2: Band Pass (BPF)</option>
-                      <option value={3}>3: Notch</option>
+                      <option value={3}>3: Notch (Band Stop)</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-emerald-200 mb-1">
-                    <span>cp[1]: Cutoff Frequency</span>
-                    <span className="font-bold">{config.customParam1 || 1800} Hz</span>
+                    <span className="font-semibold text-emerald-300">cp[1]: Cutoff Hz</span>
+                    <span className="font-bold text-white bg-emerald-900 px-1.5 py-0.2 rounded">
+                      {config.customParam1 || 1800} Hz
+                    </span>
                   </div>
                   <input
                     type="range"
@@ -834,13 +894,16 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam1: Number(e.target.value) })}
                     className="w-full accent-emerald-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Frequência de corte do filtro interno biquad de 20 Hz a 16 kHz.
+                  </span>
                 </div>
 
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-emerald-200 mb-1">
-                    <span>cp[2]: Resonance (Q * 100)</span>
-                    <span className="font-bold">
-                      {config.customParam2 ?? 250} (Q = {((config.customParam2 ?? 250) / 100).toFixed(2)})
+                    <span className="font-semibold text-emerald-300">cp[2]: Resonance Q Factor</span>
+                    <span className="font-bold text-white bg-emerald-900 px-1.5 py-0.2 rounded">
+                      Q = {((config.customParam2 ?? 250) / 100).toFixed(2)} ({config.customParam2 ?? 250})
                     </span>
                   </div>
                   <input
@@ -852,6 +915,9 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
                     onChange={(e) => onChange({ customParam2: Number(e.target.value) })}
                     className="w-full accent-emerald-400 cursor-pointer"
                   />
+                  <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
+                    Ponto fixo Q*100. 70 = 0.707 (plano), 250 = 2.50 (pico), 800+ = alta ressonância.
+                  </span>
                 </div>
               </div>
             )}
@@ -861,7 +927,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
               <div className="p-3.5 bg-amber-950/30 border border-amber-800/60 rounded-lg space-y-3">
                 <div className="flex items-center gap-1.5 text-xs font-mono text-amber-300 font-bold">
                   <Sliders className="w-4 h-4 text-amber-400" />
-                  <span>Hammond B3 Drawbars (cp[0])</span>
+                  <span>cp[0]: Hammond B3 Drawbars</span>
                 </div>
 
                 <select
@@ -912,14 +978,29 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
               <div className="p-3.5 bg-cyan-950/30 border border-cyan-800/60 rounded-lg space-y-2">
                 <div className="flex items-center gap-1.5 text-xs font-mono text-cyan-300 font-bold">
                   <Volume2 className="w-4 h-4 text-cyan-400" />
-                  <span>Karplus-Strong String Pluck</span>
+                  <span>Karplus-Strong String Resonator</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
-                  Dynamically excites an internal 2048-sample delay line with shaped PRNG noise impulses and low-pass loop feedback.
+                  Buffer de delay em anel de 2048 amostras com excitação por ruído pseudo-aleatório (PRNG) e amortecimento passa-baixas.
                 </p>
                 <div className="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 p-2 rounded border border-cyan-800/40">
-                  Tip: Route to Bus 0 and enable the Stompbox Pedalboard with Distortion & Delay for rich rock electric guitar sounds!
+                  cp[0..3] gerenciados internamente pelo simulador de tensão de corda e decaimento acústico.
                 </div>
+              </div>
+            )}
+
+            {/* Basic / AA_Saw / AA_Pulse contextual info */}
+            {(config.customPatch === CustomWavePatch.BASIC ||
+              config.customPatch === CustomWavePatch.AA_SAW ||
+              config.customPatch === CustomWavePatch.AA_PULSE) && (
+              <div className="p-3 bg-slate-900/80 border border-slate-800 rounded-lg text-xs font-mono text-slate-400 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-slate-300 font-bold">
+                  <Info className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Parâmetros de LFO e Modulação</span>
+                </div>
+                <p className="text-[10px] text-slate-500 font-sans">
+                  Neste algoritmo, o sinal primário opera via oscilador direto em ponto fixo Q28. Utilize os controles de Vibrato e Tremolo abaixo.
+                </p>
               </div>
             )}
 

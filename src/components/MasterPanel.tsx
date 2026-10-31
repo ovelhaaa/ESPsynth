@@ -7,11 +7,8 @@ import {
   Sparkles,
   Power,
   RotateCw,
-  Flame,
-  Radio,
-  Sliders,
-  Check,
   Zap,
+  ArrowRight,
 } from 'lucide-react';
 
 export interface MasterConfig {
@@ -64,13 +61,11 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
   // Switch between Q mode (0) and Bandwidth Hz mode (1)
   const handleUnitModeToggle = (mode: number) => {
     if (mode === 1) {
-      // Switch to Bandwidth mode: set sensible default bandwidth in Hz (e.g. 200 Hz)
       onChange({
         bus1BwMode: 1,
         bus1ResonanceQ: config.bus1BwMode === 1 ? config.bus1ResonanceQ : 200,
       });
     } else {
-      // Switch to Q mode: set sensible default Q*100 (e.g. 250 for Q=2.50)
       onChange({
         bus1BwMode: 0,
         bus1ResonanceQ: config.bus1BwMode === 0 ? config.bus1ResonanceQ : 250,
@@ -88,13 +83,11 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
     const isBw = config.bus1BwMode === 1;
     const qOrBw = config.bus1ResonanceQ || (isBw ? 200 : 100);
 
-    // Normalized cutoff in log scale (20 Hz to 20 kHz)
     const logMin = Math.log10(20);
     const logMax = Math.log10(20000);
     const normalizedFc = (Math.log10(fc) - logMin) / (logMax - logMin);
     const fcX = Math.round(normalizedFc * width);
 
-    // Calculate curve points across 35 frequency steps
     for (let i = 0; i <= 35; i++) {
       const frac = i / 35;
       const freq = Math.pow(10, logMin + frac * (logMax - logMin));
@@ -104,13 +97,11 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
       const ratio = freq / fc;
 
       if (mode === 0) {
-        // LPF: 0 dB below fc, rolloff -12dB/oct above, peak at fc proportional to Q
         if (freq < fc) {
           gainDb = 0;
         } else {
           gainDb = -24 * Math.log2(ratio);
         }
-        // Resonance peak around fc
         const dist = Math.abs(Math.log2(ratio));
         if (dist < 0.6) {
           const qVal = isBw ? Math.max(0.5, fc / qOrBw) : qOrBw / 100;
@@ -118,7 +109,6 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           gainDb += peakDb * (1 - dist / 0.6);
         }
       } else if (mode === 1) {
-        // HPF: rolloff below fc, 0 dB above
         if (freq > fc) {
           gainDb = 0;
         } else {
@@ -131,12 +121,10 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           gainDb += peakDb * (1 - dist / 0.6);
         }
       } else if (mode === 2) {
-        // BPF: peak at fc, drop on both sides
         const dist = Math.abs(Math.log2(ratio));
         const widthFactor = isBw ? Math.max(0.2, (qOrBw / fc) * 1.5) : Math.max(0.2, 2.5 / (qOrBw / 100));
         gainDb = -Math.min(32, Math.pow(dist / widthFactor, 2) * 16);
       } else {
-        // Notch: 0 dB everywhere, deep notch at fc
         const dist = Math.abs(Math.log2(ratio));
         const widthFactor = isBw ? Math.max(0.1, (qOrBw / fc) * 0.8) : Math.max(0.1, 1.2 / (qOrBw / 100));
         if (dist < widthFactor) {
@@ -146,7 +134,6 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
         }
       }
 
-      // Map gainDb (+16dB to -32dB) to Y coordinate (0 to height)
       const y = Math.max(4, Math.min(height - 4, 30 - gainDb * 1.6));
       points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     }
@@ -258,7 +245,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                 className="w-full accent-emerald-500 cursor-pointer"
               />
               <span className="text-[10px] font-mono text-slate-500 mt-1 block">
-                Envelope & LFO calculation cadence (50 Hz to 200 Hz tick rate).
+                Cadência de envelopes ADSR e osciladores LFO (taxa de 50 Hz a 200 Hz).
               </span>
             </div>
           </div>
@@ -297,7 +284,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
             {/* Real-time SVG Frequency Response Graph */}
             <div className="bg-slate-950 rounded-lg border border-slate-800 p-2.5 space-y-1.5">
               <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                <span>Filter Frequency Response Curve</span>
+                <span>Curva de Resposta de Frequência</span>
                 <span className="text-blue-300 font-bold">
                   {config.bus1CutoffHz} Hz • {config.bus1FilterMode === 0 ? 'LPF' : config.bus1FilterMode === 1 ? 'HPF' : config.bus1FilterMode === 2 ? 'BPF' : 'Notch'}
                 </span>
@@ -305,16 +292,13 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
 
               <div className="relative h-24 w-full bg-slate-900/80 rounded border border-slate-800 overflow-hidden flex items-center justify-center">
                 <svg className="w-full h-full" viewBox="0 0 280 90" preserveAspectRatio="none">
-                  {/* Grid lines */}
                   <line x1="0" y1="30" x2="280" y2="30" stroke="#1e293b" strokeDasharray="3,3" />
                   <line x1="70" y1="0" x2="70" y2="90" stroke="#1e293b" strokeDasharray="2,2" />
                   <line x1="140" y1="0" x2="140" y2="90" stroke="#1e293b" strokeDasharray="2,2" />
                   <line x1="210" y1="0" x2="210" y2="90" stroke="#1e293b" strokeDasharray="2,2" />
 
-                  {/* Frequency Response Path */}
                   <path d={pathString} fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
 
-                  {/* Cutoff frequency vertical marker */}
                   <line x1={fcX} y1="0" x2={fcX} y2="90" stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="2,2" />
                   <circle cx={fcX} cy="30" r="3.5" fill="#60a5fa" />
                 </svg>
@@ -403,7 +387,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                 </div>
               </div>
 
-              {/* Dynamic ep[2] Parameter Slider & Input */}
+              {/* Dynamic ep[2] Parameter Slider */}
               {(config.bus1BwMode ?? 0) === 0 ? (
                 <div>
                   <div className="flex justify-between text-[10px] font-mono text-blue-200 mb-1">
@@ -422,7 +406,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                     className="w-full accent-blue-400 cursor-pointer"
                   />
                   <span className="text-[9px] font-mono text-slate-500 block mt-0.5">
-                    Q = 70 (0.707 flat Butterworth) to 1000 (10.0 resonant ringing).
+                    Q = 70 (0.707 plano Butterworth) a 1000 (10.0 ressonância com ringing).
                   </span>
                 </div>
               ) : (
@@ -441,7 +425,7 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                     className="w-full accent-blue-400 cursor-pointer"
                   />
                   <span className="text-[9px] font-mono text-slate-500 block mt-0.5">
-                    Bandwidth between -3dB cutoff corner frequencies in Hertz.
+                    Largura de banda entre as frequências de corte de -3dB em Hertz.
                   </span>
                 </div>
               )}
@@ -499,173 +483,285 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
           </div>
 
           <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 space-y-4">
-            {/* Case 1: Modular Stompbox Pedalboard */}
+            {/* Case 1: Modular Stompbox Pedalboard (3 Pedals) */}
             {config.globalDSPPatch === GlobalDSPPatch.DSP_PEDALBOARD && (
-              <div className="space-y-3">
-                <div className="text-[11px] font-mono font-bold text-amber-300 flex items-center justify-between border-b border-slate-800 pb-2">
-                  <span className="flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    Modular Stompbox Chain (dp[0..2])
+              <div className="space-y-3.5">
+                {/* Pedalboard Flow Line */}
+                <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-slate-800">
+                  <span className="text-slate-500">VOICES</span>
+                  <ArrowRight className="w-3 h-3 text-slate-600" />
+                  <span className={config.dspParam0 > 0 ? 'text-amber-400 font-bold' : 'text-slate-600'}>
+                    [DRIVE/CAB]
                   </span>
-                  <span className="text-[10px] font-normal text-slate-400">Click stompbox to toggle</span>
+                  <ArrowRight className="w-3 h-3 text-slate-600" />
+                  <span className={config.dspParam1 > 0 ? 'text-cyan-400 font-bold' : 'text-slate-600'}>
+                    [CHORUS]
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-slate-600" />
+                  <span className={config.dspParam2 > 0 ? 'text-emerald-400 font-bold' : 'text-slate-600'}>
+                    [DELAY]
+                  </span>
+                  <ArrowRight className="w-3 h-3 text-slate-600" />
+                  <span className="text-slate-300">DAC OUT</span>
                 </div>
 
-                {/* Stompboxes Rack */}
+                {/* Stompboxes Enclosure Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Stompbox 1: Overdrive & Speaker Cab */}
+                  {/* Stompbox 1: Overdrive & Speaker Cab (dp[0]) */}
                   {(() => {
                     const isOn = (config.dspParam0 ?? 0) > 0;
                     return (
                       <div
                         onClick={() => onChange({ dspParam0: isOn ? 0 : 1 })}
-                        className={`p-3 rounded-xl border flex flex-col justify-between gap-3 cursor-pointer transition-all duration-150 select-none relative group ${
+                        className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-200 select-none relative group ${
                           isOn
-                            ? 'bg-gradient-to-b from-amber-950/80 to-amber-900/40 border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
-                            : 'bg-slate-900 border-slate-800 opacity-60 hover:opacity-85'
+                            ? 'bg-gradient-to-b from-amber-950/90 via-amber-900/40 to-slate-950 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/50'
+                            : 'bg-slate-900/90 border-slate-800 opacity-70 hover:opacity-90'
                         }`}
                       >
-                        {/* Jewel LED indicator */}
+                        {/* Metallic Screws */}
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
+                        </div>
+
+                        {/* Dome Jewel LED indicator */}
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] font-mono font-bold tracking-wider text-amber-300">
-                            DRIVE/CAB
+                            DRIVE / CAB
                           </span>
-                          <div
-                            className={`w-3.5 h-3.5 rounded-full border transition-all ${
-                              isOn
-                                ? 'bg-red-500 border-red-300 shadow-[0_0_10px_#ef4444]'
-                                : 'bg-red-950 border-red-900'
-                            }`}
-                          />
-                        </div>
-
-                        {/* Pedal Label & Description */}
-                        <div>
-                          <div className="text-xs font-mono font-bold text-slate-100 group-hover:text-amber-200">
-                            OVERDRIVE
-                          </div>
-                          <div className="text-[9px] text-slate-400 font-mono mt-0.5">
-                            Comp + Soft Clip + 3-Pole Cab
+                          <div className="relative flex items-center justify-center">
+                            {isOn && (
+                              <div className="absolute w-6 h-6 rounded-full bg-red-500/40 animate-ping" />
+                            )}
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 transition-all duration-200 shadow-md ${
+                                isOn
+                                  ? 'bg-red-500 border-red-200 shadow-[0_0_15px_#ef4444]'
+                                  : 'bg-red-950 border-red-900/80'
+                              }`}
+                            />
                           </div>
                         </div>
 
-                        {/* Stomp Footswitch */}
+                        {/* Top Decorative Knobs */}
+                        <div className="flex justify-around py-1">
+                          {['DRIVE', 'TONE', 'LEVEL'].map((knob, idx) => (
+                            <div key={idx} className="flex flex-col items-center gap-0.5">
+                              <div className="w-5 h-5 rounded-full bg-slate-950 border border-slate-700 flex items-center justify-center relative shadow-inner">
+                                <div className={`w-0.5 h-2 rounded-full ${isOn ? 'bg-amber-400' : 'bg-slate-600'}`} />
+                              </div>
+                              <span className="text-[7px] font-mono text-slate-400">{knob}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Pedal Label & Specs */}
+                        <div className="text-center">
+                          <div className="text-xs font-mono font-extrabold text-amber-300 tracking-wider">
+                            VINTAGE OD
+                          </div>
+                          <div className="text-[8px] text-slate-400 font-mono mt-0.5">
+                            3-Stage Drive + Cab LPF
+                          </div>
+                        </div>
+
+                        {/* Chrome Stomp Footswitch */}
                         <div className="flex flex-col items-center pt-1">
                           <div
-                            className={`w-10 h-7 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all ${
+                            className={`w-12 h-8 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all duration-100 active:scale-90 active:translate-y-1 ${
                               isOn
-                                ? 'bg-slate-300 border-slate-100 text-slate-800 shadow-amber-900/40'
-                                : 'bg-slate-700 border-slate-600 text-slate-400'
+                                ? 'bg-gradient-to-b from-slate-200 to-slate-400 border-white text-slate-900 shadow-amber-900/60'
+                                : 'bg-gradient-to-b from-slate-700 to-slate-800 border-slate-600 text-slate-400'
                             }`}
                           >
-                            <Power className="w-3.5 h-3.5" />
+                            <Power className="w-4 h-4" />
                           </div>
-                          <span className={`text-[9px] font-mono font-bold mt-1.5 ${isOn ? 'text-amber-400' : 'text-slate-500'}`}>
-                            {isOn ? '● ACTIVE (1)' : '○ BYPASS (0)'}
+                          <span
+                            className={`text-[9px] font-mono font-bold mt-1.5 px-2 py-0.5 rounded border transition-all ${
+                              isOn
+                                ? 'bg-amber-950/80 border-amber-500 text-amber-300 shadow-sm'
+                                : 'bg-slate-950 border-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {isOn ? '● ACTIVE (dp[0]=1)' : '○ BYPASS (dp[0]=0)'}
                           </span>
+                        </div>
+
+                        {/* Bottom Screws */}
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* Stompbox 2: Stereo Chorus */}
+                  {/* Stompbox 2: Stereo Chorus (dp[1]) */}
                   {(() => {
                     const isOn = (config.dspParam1 ?? 0) > 0;
                     return (
                       <div
                         onClick={() => onChange({ dspParam1: isOn ? 0 : 1 })}
-                        className={`p-3 rounded-xl border flex flex-col justify-between gap-3 cursor-pointer transition-all duration-150 select-none relative group ${
+                        className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-200 select-none relative group ${
                           isOn
-                            ? 'bg-gradient-to-b from-cyan-950/80 to-cyan-900/40 border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                            : 'bg-slate-900 border-slate-800 opacity-60 hover:opacity-85'
+                            ? 'bg-gradient-to-b from-cyan-950/90 via-cyan-900/40 to-slate-950 border-cyan-500 shadow-[0_0_20px_rgba(6,182,212,0.25)] ring-1 ring-cyan-400/50'
+                            : 'bg-slate-900/90 border-slate-800 opacity-70 hover:opacity-90'
                         }`}
                       >
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
+                        </div>
+
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] font-mono font-bold tracking-wider text-cyan-300">
                             MODULATION
                           </span>
-                          <div
-                            className={`w-3.5 h-3.5 rounded-full border transition-all ${
-                              isOn
-                                ? 'bg-cyan-400 border-cyan-200 shadow-[0_0_10px_#22d3ee]'
-                                : 'bg-cyan-950 border-cyan-900'
-                            }`}
-                          />
+                          <div className="relative flex items-center justify-center">
+                            {isOn && (
+                              <div className="absolute w-6 h-6 rounded-full bg-cyan-400/40 animate-ping" />
+                            )}
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 transition-all duration-200 shadow-md ${
+                                isOn
+                                  ? 'bg-cyan-400 border-cyan-200 shadow-[0_0_15px_#22d3ee]'
+                                  : 'bg-cyan-950 border-cyan-900/80'
+                              }`}
+                            />
+                          </div>
                         </div>
 
-                        <div>
-                          <div className="text-xs font-mono font-bold text-slate-100 group-hover:text-cyan-200">
-                            CHORUS
+                        {/* Top Knobs */}
+                        <div className="flex justify-around py-1">
+                          {['SPEED', 'DEPTH', 'MIX'].map((knob, idx) => (
+                            <div key={idx} className="flex flex-col items-center gap-0.5">
+                              <div className="w-5 h-5 rounded-full bg-slate-950 border border-slate-700 flex items-center justify-center relative shadow-inner">
+                                <div className={`w-0.5 h-2 rounded-full ${isOn ? 'bg-cyan-400' : 'bg-slate-600'}`} />
+                              </div>
+                              <span className="text-[7px] font-mono text-slate-400">{knob}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="text-center">
+                          <div className="text-xs font-mono font-extrabold text-cyan-300 tracking-wider">
+                            BBD CHORUS
                           </div>
-                          <div className="text-[9px] text-slate-400 font-mono mt-0.5">
-                            2k Delay Line + Sine LFO
+                          <div className="text-[8px] text-slate-400 font-mono mt-0.5">
+                            2048-Sample Delay Line
                           </div>
                         </div>
 
                         <div className="flex flex-col items-center pt-1">
                           <div
-                            className={`w-10 h-7 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all ${
+                            className={`w-12 h-8 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all duration-100 active:scale-90 active:translate-y-1 ${
                               isOn
-                                ? 'bg-slate-300 border-slate-100 text-slate-800 shadow-cyan-900/40'
-                                : 'bg-slate-700 border-slate-600 text-slate-400'
+                                ? 'bg-gradient-to-b from-slate-200 to-slate-400 border-white text-slate-900 shadow-cyan-900/60'
+                                : 'bg-gradient-to-b from-slate-700 to-slate-800 border-slate-600 text-slate-400'
                             }`}
                           >
-                            <Power className="w-3.5 h-3.5" />
+                            <Power className="w-4 h-4" />
                           </div>
-                          <span className={`text-[9px] font-mono font-bold mt-1.5 ${isOn ? 'text-cyan-400' : 'text-slate-500'}`}>
-                            {isOn ? '● ACTIVE (1)' : '○ BYPASS (0)'}
+                          <span
+                            className={`text-[9px] font-mono font-bold mt-1.5 px-2 py-0.5 rounded border transition-all ${
+                              isOn
+                                ? 'bg-cyan-950/80 border-cyan-500 text-cyan-300 shadow-sm'
+                                : 'bg-slate-950 border-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {isOn ? '● ACTIVE (dp[1]=1)' : '○ BYPASS (dp[1]=0)'}
                           </span>
+                        </div>
+
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* Stompbox 3: Slapback Delay */}
+                  {/* Stompbox 3: Slapback Delay (dp[2]) */}
                   {(() => {
                     const isOn = (config.dspParam2 ?? 0) > 0;
                     return (
                       <div
                         onClick={() => onChange({ dspParam2: isOn ? 0 : 1 })}
-                        className={`p-3 rounded-xl border flex flex-col justify-between gap-3 cursor-pointer transition-all duration-150 select-none relative group ${
+                        className={`p-3 rounded-xl border flex flex-col justify-between gap-2.5 cursor-pointer transition-all duration-200 select-none relative group ${
                           isOn
-                            ? 'bg-gradient-to-b from-emerald-950/80 to-emerald-900/40 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
-                            : 'bg-slate-900 border-slate-800 opacity-60 hover:opacity-85'
+                            ? 'bg-gradient-to-b from-emerald-950/90 via-emerald-900/40 to-slate-950 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.25)] ring-1 ring-emerald-400/50'
+                            : 'bg-slate-900/90 border-slate-800 opacity-70 hover:opacity-90'
                         }`}
                       >
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
+                        </div>
+
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] font-mono font-bold tracking-wider text-emerald-300">
                             ECHO BUFFER
                           </span>
-                          <div
-                            className={`w-3.5 h-3.5 rounded-full border transition-all ${
-                              isOn
-                                ? 'bg-emerald-400 border-emerald-200 shadow-[0_0_10px_#34d399]'
-                                : 'bg-emerald-950 border-emerald-900'
-                            }`}
-                          />
+                          <div className="relative flex items-center justify-center">
+                            {isOn && (
+                              <div className="absolute w-6 h-6 rounded-full bg-emerald-400/40 animate-ping" />
+                            )}
+                            <div
+                              className={`w-4 h-4 rounded-full border-2 transition-all duration-200 shadow-md ${
+                                isOn
+                                  ? 'bg-emerald-400 border-emerald-200 shadow-[0_0_15px_#34d399]'
+                                  : 'bg-emerald-950 border-emerald-900/80'
+                              }`}
+                            />
+                          </div>
                         </div>
 
-                        <div>
-                          <div className="text-xs font-mono font-bold text-slate-100 group-hover:text-emerald-200">
+                        {/* Top Knobs */}
+                        <div className="flex justify-around py-1">
+                          {['TIME', 'REPEAT', 'LEVEL'].map((knob, idx) => (
+                            <div key={idx} className="flex flex-col items-center gap-0.5">
+                              <div className="w-5 h-5 rounded-full bg-slate-950 border border-slate-700 flex items-center justify-center relative shadow-inner">
+                                <div className={`w-0.5 h-2 rounded-full ${isOn ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                              </div>
+                              <span className="text-[7px] font-mono text-slate-400">{knob}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="text-center">
+                          <div className="text-xs font-mono font-extrabold text-emerald-300 tracking-wider">
                             16K DELAY
                           </div>
-                          <div className="text-[9px] text-slate-400 font-mono mt-0.5">
+                          <div className="text-[8px] text-slate-400 font-mono mt-0.5">
                             Slapback Echo Loop
                           </div>
                         </div>
 
                         <div className="flex flex-col items-center pt-1">
                           <div
-                            className={`w-10 h-7 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all ${
+                            className={`w-12 h-8 rounded-lg border-2 shadow-inner flex items-center justify-center transition-all duration-100 active:scale-90 active:translate-y-1 ${
                               isOn
-                                ? 'bg-slate-300 border-slate-100 text-slate-800 shadow-emerald-900/40'
-                                : 'bg-slate-700 border-slate-600 text-slate-400'
+                                ? 'bg-gradient-to-b from-slate-200 to-slate-400 border-white text-slate-900 shadow-emerald-900/60'
+                                : 'bg-gradient-to-b from-slate-700 to-slate-800 border-slate-600 text-slate-400'
                             }`}
                           >
-                            <Power className="w-3.5 h-3.5" />
+                            <Power className="w-4 h-4" />
                           </div>
-                          <span className={`text-[9px] font-mono font-bold mt-1.5 ${isOn ? 'text-emerald-400' : 'text-slate-500'}`}>
-                            {isOn ? '● ACTIVE (1)' : '○ BYPASS (0)'}
+                          <span
+                            className={`text-[9px] font-mono font-bold mt-1.5 px-2 py-0.5 rounded border transition-all ${
+                              isOn
+                                ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-sm'
+                                : 'bg-slate-950 border-slate-800 text-slate-500'
+                            }`}
+                          >
+                            {isOn ? '● ACTIVE (dp[2]=1)' : '○ BYPASS (dp[2]=0)'}
                           </span>
+                        </div>
+
+                        <div className="flex justify-between text-slate-600 text-[8px] font-mono leading-none">
+                          <span>&#10010;</span>
+                          <span>&#10010;</span>
                         </div>
                       </div>
                     );
@@ -679,7 +775,10 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
               <div className="space-y-3.5">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                   <div className="flex items-center gap-2">
-                    <RotateCw className="w-4 h-4 text-purple-400 animate-spin" style={{ animationDuration: config.dspParam0 === 2 ? '0.6s' : '2.5s' }} />
+                    <RotateCw
+                      className="w-4 h-4 text-purple-400 animate-spin"
+                      style={{ animationDuration: config.dspParam0 === 2 ? '0.6s' : '2.5s' }}
+                    />
                     <span className="text-xs font-mono font-bold text-purple-300 uppercase">
                       Leslie 122 Rotary Speaker
                     </span>
@@ -779,20 +878,20 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
             {config.globalDSPPatch === GlobalDSPPatch.NONE && (
               <div className="py-4 text-center space-y-2">
                 <p className="text-xs text-slate-400 font-mono">
-                  Clean direct master path straight from voice mixers to 16-bit DAC.
+                  Sinal direto e limpo direto dos mixers de voz para a simulação do DAC de 16-bit.
                 </p>
                 <div className="flex justify-center gap-2">
                   <button
                     onClick={() => handleGlobalDSPSelect(GlobalDSPPatch.DSP_PEDALBOARD)}
-                    className="px-3 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-mono font-bold rounded-lg transition cursor-pointer"
+                    className="px-3 py-1.5 bg-amber-600/80 hover:bg-amber-500 text-white text-xs font-mono font-bold rounded-lg transition cursor-pointer shadow-sm"
                   >
-                    Activate Pedalboard FX
+                    Ativar Pedalboard FX
                   </button>
                   <button
                     onClick={() => handleGlobalDSPSelect(GlobalDSPPatch.DSP_HAMMOND_LESLIE)}
-                    className="px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-mono font-bold rounded-lg transition cursor-pointer"
+                    className="px-3 py-1.5 bg-purple-600/80 hover:bg-purple-500 text-white text-xs font-mono font-bold rounded-lg transition cursor-pointer shadow-sm"
                   >
-                    Activate Leslie 122
+                    Ativar Leslie 122
                   </button>
                 </div>
               </div>

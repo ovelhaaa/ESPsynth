@@ -11,9 +11,18 @@ export interface WebMidiState {
 interface UseWebMidiOptions {
   onNoteOn?: (midiNote: number, velocity: number) => void;
   onNoteOff?: (midiNote: number) => void;
+  onControlChange?: (controller: number, value: number) => void;
+  onPitchBend?: (bendValue: number) => void; // -1.0 to +1.0
+  onAllNotesOff?: () => void;
 }
 
-export function useWebMidi({ onNoteOn, onNoteOff }: UseWebMidiOptions = {}) {
+export function useWebMidi({
+  onNoteOn,
+  onNoteOff,
+  onControlChange,
+  onPitchBend,
+  onAllNotesOff,
+}: UseWebMidiOptions = {}) {
   const [isSupported, setIsSupported] = useState<boolean>(false);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [deviceName, setDeviceName] = useState<string | null>(null);
@@ -24,11 +33,17 @@ export function useWebMidi({ onNoteOn, onNoteOff }: UseWebMidiOptions = {}) {
   const activityTimeoutRef = useRef<number | null>(null);
   const onNoteOnRef = useRef(onNoteOn);
   const onNoteOffRef = useRef(onNoteOff);
+  const onControlChangeRef = useRef(onControlChange);
+  const onPitchBendRef = useRef(onPitchBend);
+  const onAllNotesOffRef = useRef(onAllNotesOff);
 
   useEffect(() => {
     onNoteOnRef.current = onNoteOn;
     onNoteOffRef.current = onNoteOff;
-  }, [onNoteOn, onNoteOff]);
+    onControlChangeRef.current = onControlChange;
+    onPitchBendRef.current = onPitchBend;
+    onAllNotesOffRef.current = onAllNotesOff;
+  }, [onNoteOn, onNoteOff, onControlChange, onPitchBend, onAllNotesOff]);
 
   const triggerActivity = useCallback(() => {
     setHasActivity(true);
@@ -45,7 +60,7 @@ export function useWebMidi({ onNoteOn, onNoteOff }: UseWebMidiOptions = {}) {
     if (inputs.length > 0) {
       setIsConnected(true);
       const names = inputs.map(i => i.name).filter(Boolean).join(', ');
-      setDeviceName(names || 'USB MIDI Device');
+      setDeviceName(names || 'USB MIDI Controller');
       setError(null);
     } else {
       setIsConnected(false);
@@ -70,6 +85,22 @@ export function useWebMidi({ onNoteOn, onNoteOff }: UseWebMidiOptions = {}) {
         } else if (command === 8 || (command === 9 && velocity === 0)) {
           // Note Off
           onNoteOffRef.current?.(note);
+        } else if (command === 11) {
+          // Control Change (CC)
+          const ccNumber = note;
+          const ccVal = velocity;
+          if (ccNumber === 120 || ccNumber === 123) {
+            onAllNotesOffRef.current?.();
+          } else {
+            onControlChangeRef.current?.(ccNumber, ccVal);
+          }
+        } else if (command === 14) {
+          // Pitch Bend: 14-bit signed centered at 8192
+          const lsb = note;
+          const msb = velocity;
+          const raw = ((msb << 7) | lsb) - 8192;
+          const normalized = Math.max(-1, Math.min(1, raw / 8192));
+          onPitchBendRef.current?.(normalized);
         }
       };
     });

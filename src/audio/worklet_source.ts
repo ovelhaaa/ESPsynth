@@ -1,1 +1,270 @@
-export const WORKLET_CODE = "/**\n * esp32synth-worklet.js\n * ESP32Synth AudioWorkletProcessor\n * Pure WebAssembly fixed-point DSP runner calling process_audio_block\n * 1:1 Mirror of Danilo Gabriel's ESP32Synth\n */\n\nclass ESP32SynthProcessor extends AudioWorkletProcessor {\n  constructor() {\n    super();\n    this.wasmInstance = null;\n    this.exports = null;\n    this.isReady = false;\n    this.sampleRate = 48000;\n    this.telemetryCounter = 0;\n\n    // Linear memory pointers for 128-frame audio quantum\n    this.leftBufferPtr = 0;\n    this.rightBufferPtr = 0;\n    this.scratchNotesPtr = 0;\n\n    this.port.onmessage = (event) => {\n      this.handleMessage(event.data);\n    };\n  }\n\n  handleMessage(msg) {\n    if (msg.type === 'INIT_WASM') {\n      try {\n        const module = new WebAssembly.Module(msg.wasmBytes);\n        this.wasmInstance = new WebAssembly.Instance(module, {});\n        this.exports = this.wasmInstance.exports;\n        this.sampleRate = msg.sampleRate || 48000;\n        \n        // Initialize ESP32Synth C++ engine\n        if (typeof this.exports.synth_init === 'function') {\n          this.exports.synth_init(this.sampleRate);\n        }\n\n        // Allocate audio output float buffers (128 frames each = 512 bytes)\n        const numFrames = 128;\n        if (typeof this.exports.synth_alloc_float_buffer === 'function') {\n          this.leftBufferPtr = this.exports.synth_alloc_float_buffer(numFrames);\n          this.rightBufferPtr = this.exports.synth_alloc_float_buffer(numFrames);\n          this.scratchNotesPtr = this.exports.synth_alloc_float_buffer(32);\n        } else if (typeof this.exports.malloc === 'function') {\n          this.leftBufferPtr = this.exports.malloc(numFrames * 4);\n          this.rightBufferPtr = this.exports.malloc(numFrames * 4);\n          this.scratchNotesPtr = this.exports.malloc(32 * 4);\n        }\n\n        if (typeof this.exports.synth_setMasterVolume === 'function') {\n          this.exports.synth_setMasterVolume(msg.masterVolume !== undefined ? msg.masterVolume : 200);\n        }\n\n        this.isReady = true;\n\n        this.port.postMessage({\n          type: 'WASM_READY',\n          sampleRate: this.exports.synth_getSampleRate ? this.exports.synth_getSampleRate() : this.sampleRate,\n          masterVolume: this.exports.synth_getMasterVolume ? this.exports.synth_getMasterVolume() : 200,\n        });\n      } catch (err) {\n        this.port.postMessage({ type: 'ERROR', error: String(err) });\n      }\n      return;\n    }\n\n    if (!this.isReady || !this.exports) return;\n\n    const e = this.exports;\n    switch (msg.type) {\n      case 'NOTE_ON':\n        e.synth_noteOn(msg.voice, msg.freqCentiHz, msg.volume);\n        break;\n      case 'NOTE_OFF':\n        e.synth_noteOff(msg.voice);\n        break;\n      case 'SET_FREQ':\n        e.synth_setFrequency(msg.voice, msg.freqCentiHz);\n        break;\n      case 'SET_VOL':\n        e.synth_setVolume(msg.voice, msg.volume);\n        break;\n      case 'SET_WAVE':\n        e.synth_setWave(msg.voice, msg.waveType);\n        break;\n      case 'SET_PATCH':\n        e.synth_setCustomWavePatch(msg.voice, msg.patchId);\n        break;\n      case 'SET_PW_BITS':\n        e.synth_setPulseWidthBitDepth(msg.bits);\n        break;\n      case 'SET_PW':\n        e.synth_setPulseWidth(msg.voice, msg.width);\n        break;\n      case 'SET_ENV':\n        e.synth_setEnv(msg.voice, msg.attack, msg.decay, msg.sustain, msg.release);\n        break;\n      case 'SET_SMOOTH_ENV':\n        e.synth_setSmoothEnv(msg.voice, msg.enable ? 1 : 0);\n        break;\n      case 'SET_START_PHASE':\n        e.synth_setStartPhase(msg.voice, msg.degrees);\n        break;\n      case 'SET_CURRENT_PHASE':\n        e.synth_setCurrentPhase(msg.voice, msg.degrees);\n        break;\n      case 'SET_VIBRATO':\n        e.synth_setVibrato(msg.voice, msg.rateCentiHz, msg.depthCentiHz);\n        break;\n      case 'SET_VIBRATO_PHASE':\n        e.synth_setVibratoPhase(msg.voice, msg.degrees);\n        break;\n      case 'SET_TREMOLO':\n        e.synth_setTremolo(msg.voice, msg.rateCentiHz, msg.depth);\n        break;\n      case 'SET_TREMOLO_PHASE':\n        e.synth_setTremoloPhase(msg.voice, msg.degrees);\n        break;\n      case 'SLIDE_FREQ':\n        e.synth_slideFreq(msg.voice, msg.startFreqCentiHz, msg.endFreqCentiHz, msg.durationMs);\n        break;\n      case 'SLIDE_FREQ_TO':\n        e.synth_slideFreqTo(msg.voice, msg.endFreqCentiHz, msg.durationMs);\n        break;\n      case 'SLIDE_VOL':\n        e.synth_slideVol(msg.voice, msg.startVol, msg.endVol, msg.durationMs);\n        break;\n      case 'SLIDE_VOL_TO':\n        e.synth_slideVolTo(msg.voice, msg.endVol, msg.durationMs);\n        break;\n      case 'SET_MASTER_VOL':\n        e.synth_setMasterVolume(msg.volume);\n        break;\n      case 'SET_MASTER_BITCRUSH':\n        e.synth_setMasterBitcrush(msg.bits);\n        break;\n      case 'SET_CTRL_RATE':\n        e.synth_setControlRateHz(msg.hz);\n        break;\n      case 'SET_VOICE_BUS':\n        e.synth_setVoiceBus(msg.voice, msg.busId);\n        break;\n      case 'SET_BUS_FX_PATCH':\n        e.synth_setBusFXPatch(msg.busId, msg.slotId, msg.fxPatchId);\n        break;\n      case 'SET_BUS_FX_PARAM':\n        e.synth_setBusFXParam(msg.busId, msg.slotId, msg.paramId, msg.value);\n        break;\n      case 'SET_BUS_MIX':\n        e.synth_setBusMix(msg.busId, msg.volume);\n        break;\n      case 'SET_GLOBAL_DSP_PATCH':\n        e.synth_setCustomDSPPatch(msg.dspPatchId);\n        break;\n      case 'SET_DSP_PARAM':\n        e.synth_setDSPParam(msg.paramId, msg.value);\n        break;\n      case 'SET_CUSTOM_PARAM':\n        e.synth_setCustomParam(msg.voice, msg.paramId, msg.value);\n        break;\n      case 'SET_ARPEGGIO':\n        if (Array.isArray(msg.notes) && msg.notes.length > 0 && this.scratchNotesPtr) {\n          const notesLen = Math.min(msg.notes.length, 16);\n          const u32 = new Uint32Array(e.memory.buffer, this.scratchNotesPtr, notesLen);\n          for (let i = 0; i < notesLen; i++) u32[i] = msg.notes[i];\n          e.synth_setArpeggio(msg.voice, msg.durationMs, this.scratchNotesPtr, notesLen);\n        }\n        break;\n      case 'DETACH_ARPEGGIO':\n        e.synth_detachArpeggio(msg.voice);\n        break;\n      case 'STOP_ALL':\n        for (let v = 0; v < 80; v++) {\n          if (e.synth_isVoiceActive && e.synth_isVoiceActive(v)) {\n            e.synth_noteOff(v);\n          }\n        }\n        break;\n    }\n  }\n\n  process(inputs, outputs, parameters) {\n    const output = outputs[0];\n    if (!output || output.length === 0) return true;\n\n    const left = output[0];\n    const right = output[1] || left;\n    const numFrames = left.length; // usually 128\n\n    if (!this.isReady || !this.exports) {\n      left.fill(0);\n      if (right !== left) right.fill(0);\n      return true;\n    }\n\n    const e = this.exports;\n\n    // Use direct C++ block rendering if available:\n    if (typeof e.process_audio_block === 'function' && this.leftBufferPtr && this.rightBufferPtr) {\n      e.process_audio_block(this.leftBufferPtr, this.rightBufferPtr, numFrames);\n\n      const heapF32 = new Float32Array(e.memory.buffer);\n      const lOffset = this.leftBufferPtr >> 2;\n      const rOffset = this.rightBufferPtr >> 2;\n\n      let peak = 0;\n      for (let i = 0; i < numFrames; i++) {\n        const l = heapF32[lOffset + i];\n        const r = heapF32[rOffset + i];\n        left[i] = l;\n        right[i] = r;\n\n        const absL = Math.abs(l);\n        if (absL > peak) peak = absL;\n      }\n      this.emitTelemetry(peak);\n    } else {\n      // Fallback to synth_renderStereo\n      const ptr = e.synth_renderStereo(numFrames);\n      const int16Samples = new Int16Array(e.memory.buffer, ptr, numFrames * 2);\n\n      let peak = 0;\n      for (let i = 0; i < numFrames; i++) {\n        const l = int16Samples[i * 2] / 32768.0;\n        const r = int16Samples[i * 2 + 1] / 32768.0;\n        left[i] = l;\n        right[i] = r;\n\n        const absL = Math.abs(l);\n        if (absL > peak) peak = absL;\n      }\n      this.emitTelemetry(peak);\n    }\n\n    return true;\n  }\n\n  emitTelemetry(peak) {\n    this.telemetryCounter++;\n    if (this.telemetryCounter % 12 === 0) {\n      const e = this.exports;\n      const activeVoices = [];\n      for (let v = 0; v < 16; v++) {\n        if (e.synth_isVoiceActive(v)) {\n          activeVoices.push({\n            voice: v,\n            active: true,\n            freqCentiHz: e.synth_getFrequencyCentiHz(v),\n            env8Bit: e.synth_getEnv8Bit(v),\n            output8Bit: e.synth_getOutput8Bit(v),\n            envState: e.synth_getEnvState(v),\n            waveType: e.synth_getWaveType(v),\n          });\n        }\n      }\n\n      this.port.postMessage({\n        type: 'TELEMETRY',\n        activeVoices,\n        cpuLoad: e.synth_getCPULoad ? e.synth_getCPULoad() : 0,\n        peak,\n        masterVol: e.synth_getMasterVolume ? e.synth_getMasterVolume() : 200,\n      });\n    }\n  }\n}\n\nregisterProcessor('esp32synth-processor', ESP32SynthProcessor);\n";
+// Auto-generated worklet source string for Blob-based instantiation
+export const WORKLET_CODE = `/**
+ * esp32synth-worklet.js
+ * ESP32Synth AudioWorkletProcessor
+ * Pure WebAssembly fixed-point DSP runner calling process_audio_block
+ * 1:1 Mirror of Danilo Gabriel's ESP32Synth
+ */
+
+class ESP32SynthProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.wasmInstance = null;
+    this.exports = null;
+    this.isReady = false;
+    this.sampleRate = 48000;
+    this.telemetryCounter = 0;
+
+    // Linear memory pointers for 128-frame audio quantum
+    this.leftBufferPtr = 0;
+    this.rightBufferPtr = 0;
+    this.scratchNotesPtr = 0;
+
+    this.port.onmessage = (event) => {
+      this.handleMessage(event.data);
+    };
+  }
+
+  handleMessage(msg) {
+    if (msg.type === 'INIT_WASM') {
+      try {
+        const module = new WebAssembly.Module(msg.wasmBytes);
+        this.wasmInstance = new WebAssembly.Instance(module, {});
+        this.exports = this.wasmInstance.exports;
+        this.sampleRate = msg.sampleRate || 48000;
+        
+        // Initialize ESP32Synth C++ engine
+        if (typeof this.exports.synth_init === 'function') {
+          this.exports.synth_init(this.sampleRate);
+        }
+
+        // Allocate audio output float buffers (128 frames each = 512 bytes)
+        const numFrames = 128;
+        if (typeof this.exports.synth_alloc_float_buffer === 'function') {
+          this.leftBufferPtr = this.exports.synth_alloc_float_buffer(numFrames);
+          this.rightBufferPtr = this.exports.synth_alloc_float_buffer(numFrames);
+          this.scratchNotesPtr = this.exports.synth_alloc_float_buffer(32);
+        } else if (typeof this.exports.malloc === 'function') {
+          this.leftBufferPtr = this.exports.malloc(numFrames * 4);
+          this.rightBufferPtr = this.exports.malloc(numFrames * 4);
+          this.scratchNotesPtr = this.exports.malloc(32 * 4);
+        }
+
+        if (typeof this.exports.synth_setMasterVolume === 'function') {
+          this.exports.synth_setMasterVolume(msg.masterVolume !== undefined ? msg.masterVolume : 200);
+        }
+
+        this.isReady = true;
+
+        this.port.postMessage({
+          type: 'WASM_READY',
+          sampleRate: this.exports.synth_getSampleRate ? this.exports.synth_getSampleRate() : this.sampleRate,
+          masterVolume: this.exports.synth_getMasterVolume ? this.exports.synth_getMasterVolume() : 200,
+        });
+      } catch (err) {
+        this.port.postMessage({ type: 'ERROR', error: String(err) });
+      }
+      return;
+    }
+
+    if (!this.isReady || !this.exports) return;
+
+    const e = this.exports;
+    switch (msg.type) {
+      case 'NOTE_ON':
+        e.synth_noteOn(msg.voice, msg.freqCentiHz, msg.volume);
+        break;
+      case 'NOTE_OFF':
+        e.synth_noteOff(msg.voice);
+        break;
+      case 'SET_FREQ':
+        e.synth_setFrequency(msg.voice, msg.freqCentiHz);
+        break;
+      case 'SET_VOL':
+        e.synth_setVolume(msg.voice, msg.volume);
+        break;
+      case 'SET_WAVE':
+        e.synth_setWave(msg.voice, msg.waveType);
+        break;
+      case 'SET_PATCH':
+        e.synth_setCustomWavePatch(msg.voice, msg.patchId);
+        break;
+      case 'SET_PW_BITS':
+        e.synth_setPulseWidthBitDepth(msg.bits);
+        break;
+      case 'SET_PW':
+        e.synth_setPulseWidth(msg.voice, msg.width);
+        break;
+      case 'SET_ENV':
+        e.synth_setEnv(msg.voice, msg.attack, msg.decay, msg.sustain, msg.release);
+        break;
+      case 'SET_SMOOTH_ENV':
+        e.synth_setSmoothEnv(msg.voice, msg.enable ? 1 : 0);
+        break;
+      case 'SET_START_PHASE':
+        e.synth_setStartPhase(msg.voice, msg.degrees);
+        break;
+      case 'SET_CURRENT_PHASE':
+        e.synth_setCurrentPhase(msg.voice, msg.degrees);
+        break;
+      case 'SET_VIBRATO':
+        e.synth_setVibrato(msg.voice, msg.rateCentiHz, msg.depthCentiHz);
+        break;
+      case 'SET_VIBRATO_PHASE':
+        e.synth_setVibratoPhase(msg.voice, msg.degrees);
+        break;
+      case 'SET_TREMOLO':
+        e.synth_setTremolo(msg.voice, msg.rateCentiHz, msg.depth);
+        break;
+      case 'SET_TREMOLO_PHASE':
+        e.synth_setTremoloPhase(msg.voice, msg.degrees);
+        break;
+      case 'SLIDE_FREQ':
+        e.synth_slideFreq(msg.voice, msg.startFreqCentiHz, msg.endFreqCentiHz, msg.durationMs);
+        break;
+      case 'SLIDE_FREQ_TO':
+        e.synth_slideFreqTo(msg.voice, msg.endFreqCentiHz, msg.durationMs);
+        break;
+      case 'SLIDE_VOL':
+        e.synth_slideVol(msg.voice, msg.startVol, msg.endVol, msg.durationMs);
+        break;
+      case 'SLIDE_VOL_TO':
+        e.synth_slideVolTo(msg.voice, msg.endVol, msg.durationMs);
+        break;
+      case 'SET_MASTER_VOL':
+        e.synth_setMasterVolume(msg.volume);
+        break;
+      case 'SET_MASTER_BITCRUSH':
+        e.synth_setMasterBitcrush(msg.bits);
+        break;
+      case 'SET_CTRL_RATE':
+        e.synth_setControlRateHz(msg.hz);
+        break;
+      case 'SET_VOICE_BUS':
+        e.synth_setVoiceBus(msg.voice, msg.busId);
+        break;
+      case 'SET_BUS_FX_PATCH':
+        e.synth_setBusFXPatch(msg.busId, msg.slotId, msg.fxPatchId);
+        break;
+      case 'SET_BUS_FX_PARAM':
+        e.synth_setBusFXParam(msg.busId, msg.slotId, msg.paramId, msg.value);
+        break;
+      case 'SET_BUS_MIX':
+        e.synth_setBusMix(msg.busId, msg.volume);
+        break;
+      case 'SET_GLOBAL_DSP_PATCH':
+        e.synth_setCustomDSPPatch(msg.dspPatchId);
+        break;
+      case 'SET_DSP_PARAM':
+        e.synth_setDSPParam(msg.paramId, msg.value);
+        break;
+      case 'SET_CUSTOM_PARAM':
+        e.synth_setCustomParam(msg.voice, msg.paramId, msg.value);
+        break;
+      case 'SET_ARPEGGIO':
+        if (Array.isArray(msg.notes) && msg.notes.length > 0 && this.scratchNotesPtr) {
+          const notesLen = Math.min(msg.notes.length, 16);
+          const u32 = new Uint32Array(e.memory.buffer, this.scratchNotesPtr, notesLen);
+          for (let i = 0; i < notesLen; i++) u32[i] = msg.notes[i];
+          e.synth_setArpeggio(msg.voice, msg.durationMs, this.scratchNotesPtr, notesLen);
+        }
+        break;
+      case 'DETACH_ARPEGGIO':
+        e.synth_detachArpeggio(msg.voice);
+        break;
+      case 'STOP_ALL':
+        for (let v = 0; v < 80; v++) {
+          if (e.synth_isVoiceActive && e.synth_isVoiceActive(v)) {
+            e.synth_noteOff(v);
+          }
+        }
+        break;
+    }
+  }
+
+  process(inputs, outputs, parameters) {
+    const output = outputs[0];
+    if (!output || output.length === 0) return true;
+
+    const left = output[0];
+    const right = output[1] || left;
+    const numFrames = left.length;
+
+    if (!this.isReady || !this.exports) {
+      left.fill(0);
+      if (right !== left) right.fill(0);
+      return true;
+    }
+
+    const e = this.exports;
+
+    if (typeof e.process_audio_block === 'function' && this.leftBufferPtr && this.rightBufferPtr) {
+      e.process_audio_block(this.leftBufferPtr, this.rightBufferPtr, numFrames);
+
+      const heapF32 = new Float32Array(e.memory.buffer);
+      const lOffset = this.leftBufferPtr >> 2;
+      const rOffset = this.rightBufferPtr >> 2;
+
+      let peak = 0;
+      for (let i = 0; i < numFrames; i++) {
+        const l = heapF32[lOffset + i];
+        const r = heapF32[rOffset + i];
+        left[i] = l;
+        right[i] = r;
+
+        const absL = Math.abs(l);
+        if (absL > peak) peak = absL;
+      }
+      this.emitTelemetry(peak);
+    } else {
+      const ptr = e.synth_renderStereo(numFrames);
+      const int16Samples = new Int16Array(e.memory.buffer, ptr, numFrames * 2);
+
+      let peak = 0;
+      for (let i = 0; i < numFrames; i++) {
+        const l = int16Samples[i * 2] / 32768.0;
+        const r = int16Samples[i * 2 + 1] / 32768.0;
+        left[i] = l;
+        right[i] = r;
+
+        const absL = Math.abs(l);
+        if (absL > peak) peak = absL;
+      }
+      this.emitTelemetry(peak);
+    }
+
+    return true;
+  }
+
+  emitTelemetry(peak) {
+    this.telemetryCounter++;
+    if (this.telemetryCounter % 6 === 0) {
+      const e = this.exports;
+      const activeVoices = [];
+      for (let v = 0; v < 16; v++) {
+        if (e.synth_isVoiceActive(v)) {
+          activeVoices.push({
+            voice: v,
+            active: true,
+            freqCentiHz: e.synth_getFrequencyCentiHz(v),
+            env8Bit: e.synth_getEnv8Bit(v),
+            output8Bit: e.synth_getOutput8Bit(v),
+            envState: e.synth_getEnvState(v),
+            waveType: e.synth_getWaveType(v),
+          });
+        }
+      }
+
+      this.port.postMessage({
+        type: 'TELEMETRY',
+        activeVoices,
+        cpuLoad: e.synth_getCPULoad ? e.synth_getCPULoad() : 0,
+        peak,
+        masterVol: e.synth_getMasterVolume ? e.synth_getMasterVolume() : 200,
+      });
+    }
+  }
+}
+
+registerProcessor('esp32synth-processor', ESP32SynthProcessor);
+`;

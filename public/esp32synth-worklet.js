@@ -239,7 +239,8 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
 
   emitTelemetry(peak) {
     this.telemetryCounter++;
-    if (this.telemetryCounter % 12 === 0) {
+    // Emit telemetry every 6 quanta (~16ms = ~60 FPS update rate)
+    if (this.telemetryCounter % 6 === 0) {
       const e = this.exports;
       const activeVoices = [];
       for (let v = 0; v < 16; v++) {

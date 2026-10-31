@@ -229,6 +229,26 @@ export default function App() {
     onNoteOff: (note) => {
       handleNoteOff(note);
     },
+    onControlChange: (controller, value) => {
+      if (controller === 1) {
+        // Modulation Wheel -> Vibrato Depth (0 to 400 centiHz)
+        const depth = Math.round((value / 127) * 400);
+        handleVoiceChange({ vibratoDepthCentiHz: depth });
+      } else if (controller === 7) {
+        // Volume -> Master Volume (0 to 255)
+        const vol = Math.round((value / 127) * 255);
+        handleMasterChange({ masterVol: vol });
+      } else if (controller === 74) {
+        // Cutoff / Brightness -> Bus 1 Cutoff (60Hz to 14000Hz)
+        const minLog = Math.log(60);
+        const maxLog = Math.log(14000);
+        const cutoff = Math.round(Math.exp(minLog + (value / 127) * (maxLog - minLog)));
+        handleMasterChange({ bus1CutoffHz: cutoff });
+      }
+    },
+    onAllNotesOff: () => {
+      engine.stopAllVoices();
+    },
   });
 
   // Hardware Arpeggiator Audition loop
