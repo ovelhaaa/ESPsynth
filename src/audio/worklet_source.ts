@@ -20,9 +20,31 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
     this.rightBufferPtr = 0;
     this.scratchNotesPtr = 0;
 
+    // Cached views on WASM linear memory - updated only when memory buffer grows/changes
+    this.cachedMemoryBuffer = null;
+    this.cachedHeapF32 = null;
+    this.cachedHeapI16 = null;
+    this.cachedScratchU32 = null;
+
+    // Preallocated telemetry buffer (16 voices * 6 fields = 96 ints)
+    this.telemetryBuffer = new Int32Array(96);
+
     this.port.onmessage = (event) => {
       this.handleMessage(event.data);
     };
+  }
+
+  ensureViews() {
+    if (!this.exports || !this.exports.memory) return;
+    const memBuffer = this.exports.memory.buffer;
+    if (this.cachedMemoryBuffer !== memBuffer) {
+      this.cachedMemoryBuffer = memBuffer;
+      this.cachedHeapF32 = new Float32Array(memBuffer);
+      this.cachedHeapI16 = new Int16Array(memBuffer);
+      if (this.scratchNotesPtr) {
+        this.cachedScratchU32 = new Uint32Array(memBuffer, this.scratchNotesPtr, 16);
+      }
+    }
   }
 
   handleMessage(msg) {
@@ -54,6 +76,7 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
           this.exports.synth_setMasterVolume(msg.masterVolume !== undefined ? msg.masterVolume : 200);
         }
 
+        this.ensureViews();
         this.isReady = true;
 
         this.port.postMessage({
@@ -164,8 +187,13 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
       case 'SET_ARPEGGIO':
         if (Array.isArray(msg.notes) && msg.notes.length > 0 && this.scratchNotesPtr) {
           const notesLen = Math.min(msg.notes.length, 16);
-          const u32 = new Uint32Array(e.memory.buffer, this.scratchNotesPtr, notesLen);
-          for (let i = 0; i < notesLen; i++) u32[i] = msg.notes[i];
+          this.ensureViews();
+          if (this.cachedScratchU32) {
+            for (let i = 0; i < notesLen; i++) this.cachedScratchU32[i] = msg.notes[i];
+          } else {
+            const u32 = new Uint32Array(e.memory.buffer, this.scratchNotesPtr, notesLen);
+            for (let i = 0; i < notesLen; i++) u32[i] = msg.notes[i];
+          }
           e.synth_setArpeggio(msg.voice, msg.durationMs, this.scratchNotesPtr, notesLen);
         }
         break;
@@ -197,11 +225,12 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
     }
 
     const e = this.exports;
+    this.ensureViews();
 
     if (typeof e.process_audio_block === 'function' && this.leftBufferPtr && this.rightBufferPtr) {
       e.process_audio_block(this.leftBufferPtr, this.rightBufferPtr, numFrames);
 
-      const heapF32 = new Float32Array(e.memory.buffer);
+      const heapF32 = this.cachedHeapF32;
       const lOffset = this.leftBufferPtr >> 2;
       const rOffset = this.rightBufferPtr >> 2;
 
@@ -218,12 +247,13 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
       this.emitTelemetry(peak);
     } else {
       const ptr = e.synth_renderStereo(numFrames);
-      const int16Samples = new Int16Array(e.memory.buffer, ptr, numFrames * 2);
+      const heapI16 = this.cachedHeapI16;
+      const i16Offset = ptr >> 1;
 
       let peak = 0;
       for (let i = 0; i < numFrames; i++) {
-        const l = int16Samples[i * 2] / 32768.0;
-        const r = int16Samples[i * 2 + 1] / 32768.0;
+        const l = heapI16[i16Offset + i * 2] / 32768.0;
+        const r = heapI16[i16Offset + i * 2 + 1] / 32768.0;
         left[i] = l;
         right[i] = r;
 
@@ -238,26 +268,32 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
 
   emitTelemetry(peak) {
     this.telemetryCounter++;
-    if (this.telemetryCounter % 6 === 0) {
+    // Decimate to ~47Hz (every 8 audio blocks = ~21.3ms at 48kHz) to eliminate main thread message churn
+    if (this.telemetryCounter % 8 === 0) {
       const e = this.exports;
-      const activeVoices = [];
+      let activeCount = 0;
+      const buf = this.telemetryBuffer;
+
       for (let v = 0; v < 16; v++) {
-        if (e.synth_isVoiceActive(v)) {
-          activeVoices.push({
-            voice: v,
-            active: true,
-            freqCentiHz: e.synth_getFrequencyCentiHz(v),
-            env8Bit: e.synth_getEnv8Bit(v),
-            output8Bit: e.synth_getOutput8Bit(v),
-            envState: e.synth_getEnvState(v),
-            waveType: e.synth_getWaveType(v),
-          });
+        if (e.synth_isVoiceActive && e.synth_isVoiceActive(v)) {
+          const idx = activeCount * 6;
+          buf[idx] = v;
+          buf[idx + 1] = e.synth_getFrequencyCentiHz ? e.synth_getFrequencyCentiHz(v) : 0;
+          buf[idx + 2] = e.synth_getEnv8Bit ? e.synth_getEnv8Bit(v) : 0;
+          buf[idx + 3] = e.synth_getOutput8Bit ? e.synth_getOutput8Bit(v) : 0;
+          buf[idx + 4] = e.synth_getEnvState ? e.synth_getEnvState(v) : 0;
+          buf[idx + 5] = e.synth_getWaveType ? e.synth_getWaveType(v) : 0;
+          activeCount++;
         }
       }
 
+      // Compact flat array payload
+      const packedData = Array.from(buf.subarray(0, activeCount * 6));
+
       this.port.postMessage({
-        type: 'TELEMETRY',
-        activeVoices,
+        type: 'TELEMETRY_PACKED',
+        packedData,
+        count: activeCount,
         cpuLoad: e.synth_getCPULoad ? e.synth_getCPULoad() : 0,
         peak,
         masterVol: e.synth_getMasterVolume ? e.synth_getMasterVolume() : 200,

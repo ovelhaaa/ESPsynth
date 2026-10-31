@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ESP32SynthEngine } from './audio/ESP32SynthEngine';
-import { WaveType, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry } from './audio/types';
+import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry } from './audio/types';
 import { NOTES, midiToCentiHz, transposeCentiHz } from './audio/notes';
 import { useWebMidi } from './audio/useWebMidi';
 import { Header } from './components/Header';
@@ -29,6 +29,11 @@ export default function App() {
   const [isPlayingDemo, setIsPlayingDemo] = useState<boolean>(false);
   const [isCodeExportOpen, setIsCodeExportOpen] = useState<boolean>(false);
   const [isAuditioningArp, setIsAuditioningArp] = useState<boolean>(false);
+  const [isRecordingWav, setIsRecordingWav] = useState<boolean>(false);
+  const [recordingDurationMs, setRecordingDurationMs] = useState<number>(0);
+  const [hasRecordedWav, setHasRecordedWav] = useState<boolean>(false);
+  const [currentPitchBend, setCurrentPitchBend] = useState<number>(0);
+  const [currentModWheel, setCurrentModWheel] = useState<number>(0);
   const demoIntervalRef = useRef<number | null>(null);
   const lastFreqRef = useRef<number>(NOTES.C4);
 
@@ -78,10 +83,10 @@ export default function App() {
   // Hardware Arpeggiator & Tracker State (synth.setArpeggio)
   const [arpConfig, setArpConfig] = useState<ArpConfig>({
     enabled: false,
-    durationMs: 125,
-    steps: [0, 4, 7, 12, 16, 12, 7, 4],
-    stepCount: 4,
-    activeSteps: [true, true, true, true, true, true, true, true],
+    durationMs: 120,
+    steps: [0, 4, 7, 12, 7, 4, 0, 12, 0, 4, 7, 12, 7, 4, 0, 12],
+    stepCount: 8,
+    activeSteps: Array(16).fill(true),
   });
 
   // Sync Voice Configuration changes to C++ Engine
@@ -167,6 +172,47 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // 48kHz WAV Audio Recording subscription
+  useEffect(() => {
+    const unsubscribe = engine.subscribeRecording((isRec, durationMs) => {
+      setIsRecordingWav(isRec);
+      setRecordingDurationMs(durationMs);
+      if (isRec) setHasRecordedWav(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleToggleRecord = useCallback(async () => {
+    if (!isAudioRunning) {
+      await toggleAudio();
+    }
+    if (engine.isRecordingAudio()) {
+      const blob = engine.stopRecording();
+      if (blob) {
+        engine.downloadWAV(blob);
+        setHasRecordedWav(true);
+      }
+    } else {
+      engine.startRecording();
+    }
+  }, [isAudioRunning, toggleAudio]);
+
+  const handleDownloadWav = useCallback(() => {
+    engine.downloadWAV();
+  }, []);
+
+  const handlePitchBendChange = useCallback((norm: number) => {
+    setCurrentPitchBend(norm);
+    engine.setPitchBend(norm);
+  }, []);
+
+  const handleModWheelChange = useCallback((val: number) => {
+    setCurrentModWheel(val);
+    engine.setModulationWheel(val);
+    const depth = Math.round((val / 127) * 400);
+    handleVoiceChange({ vibratoDepthCentiHz: depth });
+  }, [voiceConfig]);
+
   const handleVoiceChange = (updated: Partial<VoiceConfig>) => {
     const newCfg = { ...voiceConfig, ...updated };
     setVoiceConfig(newCfg);
@@ -198,9 +244,12 @@ export default function App() {
 
     // Hardware Arpeggiator integration (setArpeggio)
     if (arpConfig.enabled) {
-      const activeStepsWithFreqs = arpConfig.steps
-        .slice(0, arpConfig.stepCount)
-        .map((st, i) => (arpConfig.activeSteps[i] ? transposeCentiHz(freqCentiHz, st) : freqCentiHz));
+      const activeStepsWithFreqs: number[] = [];
+      for (let i = 0; i < arpConfig.stepCount; i++) {
+        if (arpConfig.activeSteps[i]) {
+          activeStepsWithFreqs.push(transposeCentiHz(freqCentiHz, arpConfig.steps[i] ?? 0));
+        }
+      }
 
       if (activeStepsWithFreqs.length > 0) {
         engine.setArpeggio(v, arpConfig.durationMs, activeStepsWithFreqs);
@@ -220,6 +269,8 @@ export default function App() {
     isConnected: isMidiConnected,
     deviceName: midiDeviceName,
     hasActivity: hasMidiActivity,
+    pitchBend: midiPitchBend,
+    modWheel: midiModWheel,
     requestMidi,
   } = useWebMidi({
     onNoteOn: (note, velocity) => {
@@ -229,9 +280,16 @@ export default function App() {
     onNoteOff: (note) => {
       handleNoteOff(note);
     },
+    onPitchBend: (bendNorm) => {
+      // Dynamic real-time CentiHz pitch bend on all active voices
+      setCurrentPitchBend(bendNorm);
+      engine.setPitchBend(bendNorm);
+    },
     onControlChange: (controller, value) => {
       if (controller === 1) {
-        // Modulation Wheel -> Vibrato Depth (0 to 400 centiHz)
+        // Modulation Wheel (CC #1) -> Dynamic Vibrato Depth on all active voices
+        setCurrentModWheel(value);
+        engine.setModulationWheel(value);
         const depth = Math.round((value / 127) * 400);
         handleVoiceChange({ vibratoDepthCentiHz: depth });
       } else if (controller === 7) {
@@ -260,10 +318,15 @@ export default function App() {
       }
       const baseFreq = NOTES.C3;
       engine.noteOn(0, baseFreq, 220);
-      const activeStepsWithFreqs = arpConfig.steps
-        .slice(0, arpConfig.stepCount)
-        .map((st, i) => (arpConfig.activeSteps[i] ? transposeCentiHz(baseFreq, st) : baseFreq));
-      engine.setArpeggio(0, arpConfig.durationMs, activeStepsWithFreqs);
+      const activeStepsWithFreqs: number[] = [];
+      for (let i = 0; i < arpConfig.stepCount; i++) {
+        if (arpConfig.activeSteps[i]) {
+          activeStepsWithFreqs.push(transposeCentiHz(baseFreq, arpConfig.steps[i] ?? 0));
+        }
+      }
+      if (activeStepsWithFreqs.length > 0) {
+        engine.setArpeggio(0, arpConfig.durationMs, activeStepsWithFreqs);
+      }
     } else {
       engine.detachArpeggio(0);
       engine.noteOff(0);
@@ -277,10 +340,15 @@ export default function App() {
     // If currently auditioning, update arpeggio on voice 0 in real-time
     if (isAuditioningArp) {
       const baseFreq = NOTES.C3;
-      const activeStepsWithFreqs = newCfg.steps
-        .slice(0, newCfg.stepCount)
-        .map((st, i) => (newCfg.activeSteps[i] ? transposeCentiHz(baseFreq, st) : baseFreq));
-      engine.setArpeggio(0, newCfg.durationMs, activeStepsWithFreqs);
+      const activeStepsWithFreqs: number[] = [];
+      for (let i = 0; i < newCfg.stepCount; i++) {
+        if (newCfg.activeSteps[i]) {
+          activeStepsWithFreqs.push(transposeCentiHz(baseFreq, newCfg.steps[i] ?? 0));
+        }
+      }
+      if (activeStepsWithFreqs.length > 0) {
+        engine.setArpeggio(0, newCfg.durationMs, activeStepsWithFreqs);
+      }
     }
   };
 
@@ -355,10 +423,10 @@ export default function App() {
           };
           newArp = {
             enabled: true,
-            durationMs: 125,
-            steps: [0, 12, 0, 12, 0, 12, 0, 12],
-            stepCount: 4,
-            activeSteps: [true, true, true, true, true, true, true, true],
+            durationMs: 120,
+            steps: [0, 12, 0, 12, 0, 12, 0, 12, 0, 12, 0, 12, 0, 12, 0, 12],
+            stepCount: 8,
+            activeSteps: Array(16).fill(true),
           };
           break;
 
@@ -563,9 +631,14 @@ export default function App() {
     .filter((v) => v.active && v.freqCentiHz > 0)
     .map((v) => Math.round(69 + 12 * Math.log2(v.freqCentiHz / 100 / 440)));
 
+  // Primary active voice for real-time ADSR envelope visualization
+  const primaryVoice = telemetryVoices.find((v) => v.active && v.env8Bit > 0 && v.envState !== 0);
+  const activeEnvLevel = primaryVoice?.env8Bit ?? 0;
+  const activeEnvState = primaryVoice?.envState ?? EnvState.ENV_IDLE;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500/30 selection:text-emerald-300">
-      {/* Top Header with Web MIDI Status Indicator */}
+      {/* Top Header with Web MIDI Status Indicator & 48kHz WAV Direct Recording */}
       <Header
         isRunning={isAudioRunning}
         sampleRate={48000}
@@ -577,8 +650,15 @@ export default function App() {
           isConnected: isMidiConnected,
           deviceName: midiDeviceName,
           hasActivity: hasMidiActivity,
+          pitchBend: currentPitchBend,
+          modWheel: currentModWheel,
         }}
         onRequestMidi={requestMidi}
+        isRecording={isRecordingWav}
+        recordingDurationMs={recordingDurationMs}
+        onToggleRecord={handleToggleRecord}
+        onDownloadWav={handleDownloadWav}
+        hasRecordedAudio={hasRecordedWav}
       />
 
       {/* Main Workspace */}
@@ -607,7 +687,8 @@ export default function App() {
         <VoicePanel
           config={voiceConfig}
           onChange={handleVoiceChange}
-          activeEnvLevel={telemetryVoices.find((v) => v.active && v.env8Bit > 0)?.env8Bit || 0}
+          activeEnvLevel={activeEnvLevel}
+          activeEnvState={activeEnvState}
           onOpenCodeExport={() => setIsCodeExportOpen(true)}
         />
 
@@ -615,6 +696,7 @@ export default function App() {
         <ArpeggiatorPanel
           arpConfig={arpConfig}
           onArpChange={handleArpChange}
+          controlRateHz={masterConfig.controlRateHz}
           portamentoMs={voiceConfig.portamentoMs}
           onPortamentoChange={(ms) => handleVoiceChange({ portamentoMs: ms })}
           onAuditionArp={handleAuditionArp}
@@ -630,6 +712,10 @@ export default function App() {
           onNoteOff={handleNoteOff}
           activeVoicesMidiNotes={activeMidiNotes}
           midiConnectedDevice={midiDeviceName}
+          pitchBend={currentPitchBend}
+          modWheel={currentModWheel}
+          onPitchBendChange={handlePitchBendChange}
+          onModWheelChange={handleModWheelChange}
         />
       </main>
 

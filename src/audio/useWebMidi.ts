@@ -6,6 +6,8 @@ export interface WebMidiState {
   deviceName: string | null;
   hasActivity: boolean;
   error: string | null;
+  pitchBend: number; // -1.0 to +1.0
+  modWheel: number; // 0 to 127
 }
 
 interface UseWebMidiOptions {
@@ -28,6 +30,8 @@ export function useWebMidi({
   const [deviceName, setDeviceName] = useState<string | null>(null);
   const [hasActivity, setHasActivity] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [pitchBend, setPitchBend] = useState<number>(0);
+  const [modWheel, setModWheel] = useState<number>(0);
 
   const midiAccessRef = useRef<MIDIAccess | null>(null);
   const activityTimeoutRef = useRef<number | null>(null);
@@ -89,7 +93,15 @@ export function useWebMidi({
           // Control Change (CC)
           const ccNumber = note;
           const ccVal = velocity;
+
+          if (ccNumber === 1) {
+            // Modulation Wheel (CC #1)
+            setModWheel(ccVal);
+          }
+
           if (ccNumber === 120 || ccNumber === 123) {
+            // All Sound Off / All Notes Off
+            setPitchBend(0);
             onAllNotesOffRef.current?.();
           } else {
             onControlChangeRef.current?.(ccNumber, ccVal);
@@ -100,6 +112,7 @@ export function useWebMidi({
           const msb = velocity;
           const raw = ((msb << 7) | lsb) - 8192;
           const normalized = Math.max(-1, Math.min(1, raw / 8192));
+          setPitchBend(normalized);
           onPitchBendRef.current?.(normalized);
         }
       };
@@ -154,6 +167,8 @@ export function useWebMidi({
     deviceName,
     hasActivity,
     error,
+    pitchBend,
+    modWheel,
     requestMidi,
   };
 }

@@ -1,11 +1,13 @@
 import React from 'react';
-import { Volume2, VolumeX, Cpu, Radio, Activity, Cable, PlugZap } from 'lucide-react';
+import { Volume2, VolumeX, Cpu, Radio, Activity, Cable, PlugZap, Circle, Square, Download } from 'lucide-react';
 
 interface MidiStatusInfo {
   isConnected: boolean;
   deviceName: string | null;
   hasActivity: boolean;
   isSupported: boolean;
+  pitchBend?: number;
+  modWheel?: number;
 }
 
 interface HeaderProps {
@@ -16,6 +18,12 @@ interface HeaderProps {
   onToggleAudio: () => void;
   midiState?: MidiStatusInfo;
   onRequestMidi?: () => void;
+  // 48kHz WAV Direct Recording Props
+  isRecording?: boolean;
+  recordingDurationMs?: number;
+  onToggleRecord?: () => void;
+  onDownloadWav?: () => void;
+  hasRecordedAudio?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,9 +34,21 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAudio,
   midiState,
   onRequestMidi,
+  isRecording = false,
+  recordingDurationMs = 0,
+  onToggleRecord,
+  onDownloadWav,
+  hasRecordedAudio = false,
 }) => {
+  // Format milliseconds as mm:ss
+  const totalSeconds = Math.floor(recordingDurationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      {/* Brand & DSP Architecture */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-mono font-bold text-lg shadow-[0_0_15px_rgba(16,185,129,0.15)]">
           <Activity className="w-6 h-6 animate-pulse" />
@@ -40,12 +60,12 @@ export const Header: React.FC<HeaderProps> = ({
             </h1>
           </div>
           <p className="text-xs text-slate-400">
-            Fixed-Point Q28 DSP &bull; Zero-Branch PolyBLEP &bull; 8-bit / CentiHz Architecture
+            Danilo Gabriel C++ Engine &bull; Zero-Allocation Worklet &bull; Q28 Fixed-Point DSP &bull; CentiHz Tuning
           </p>
         </div>
       </div>
 
-      {/* Hardware Telemetry & Web MIDI Badges */}
+      {/* Hardware Telemetry, Web MIDI & Audio Recording Controls */}
       <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
         {/* Web MIDI Status Badge */}
         {midiState && (
@@ -93,25 +113,71 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Sample Rate Indicator */}
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300">
           <Radio className="w-3.5 h-3.5 text-blue-400" />
           <span className="text-slate-500">SR:</span>
           <span className="text-blue-300 font-semibold">{sampleRate} Hz</span>
         </div>
 
+        {/* Master Volume Indicator */}
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300">
           <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
           <span className="text-slate-500">Master:</span>
           <span className="text-emerald-300 font-semibold">{masterVol} <span className="text-slate-500">/ 255</span></span>
         </div>
 
+        {/* DSP CPU Load */}
         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300">
           <Cpu className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-slate-500">DSP Load:</span>
+          <span className="text-slate-500">DSP:</span>
           <span className={`font-semibold ${cpuLoad > 80 ? 'text-rose-400' : cpuLoad > 50 ? 'text-amber-400' : 'text-emerald-400'}`}>
             {cpuLoad.toFixed(1)}%
           </span>
         </div>
+
+        {/* Direct PCM WAV Audio Recording Button ("REC") */}
+        {onToggleRecord && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onToggleRecord}
+              title={
+                isRecording
+                  ? 'Clique para parar a gravação e baixar o arquivo .WAV a 48kHz'
+                  : 'Gravar saída de áudio PCM direta em arquivo .WAV (48kHz / 16-bit estéreo)'
+              }
+              className={`px-3 py-1.5 rounded-md font-bold flex items-center gap-2 transition-all cursor-pointer border shadow-md ${
+                isRecording
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 animate-pulse shadow-rose-900/60'
+                  : 'bg-slate-950 hover:bg-slate-800 text-rose-400 border-rose-900/60 hover:border-rose-500/80'
+              }`}
+            >
+              {isRecording ? (
+                <>
+                  <Square className="w-3 h-3 fill-current text-white animate-spin" />
+                  <span>REC {timeFormatted}</span>
+                </>
+              ) : (
+                <>
+                  <Circle className="w-3 h-3 fill-current text-rose-500" />
+                  <span>REC WAV</span>
+                </>
+              )}
+            </button>
+
+            {/* Quick download button for previously recorded audio */}
+            {!isRecording && hasRecordedAudio && onDownloadWav && (
+              <button
+                onClick={onDownloadWav}
+                className="p-1.5 rounded-md bg-slate-950 hover:bg-slate-800 border border-slate-800 text-cyan-400 hover:text-cyan-200 transition cursor-pointer"
+                title="Download da última gravação .WAV a 48kHz"
+                aria-label="Download Last WAV Recording"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Audio Power Button */}
         <button

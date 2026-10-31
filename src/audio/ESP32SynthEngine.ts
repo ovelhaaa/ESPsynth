@@ -1,11 +1,13 @@
 /**
  * ESP32SynthEngine - Web Audio API & AudioWorklet interface to ESP32Synth WebAssembly
  * Respects original units: 8-bit (0-255) for volume/PW/wet, CentiHz (1Hz = 100cHz) for frequencies.
+ * Includes complete MIDI Pitch Bend & Mod Wheel tracking, optimized telemetry decoding, and 48kHz PCM WAV export.
  */
 
-import { WaveType, CustomWavePatch, BusFXPatch, GlobalDSPPatch, EngineTelemetry } from './types';
+import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry, EngineTelemetry } from './types';
 import { WASM_BASE64 } from './wasm_binary';
 import { WORKLET_CODE } from './worklet_source';
+import { encodeWAV, downloadWAVBlob } from './wavExport';
 
 function getEmbeddedWasmBytes(): ArrayBuffer {
   const binaryString = atob(WASM_BASE64);
@@ -23,6 +25,15 @@ function isValidWasm(buffer: ArrayBuffer): boolean {
   return h[0] === 0x00 && h[1] === 0x61 && h[2] === 0x73 && h[3] === 0x6d;
 }
 
+interface VoiceSlotInfo {
+  voice: number;
+  midiNote: number;
+  baseFreqCentiHz: number;
+  volume: number;
+  vibratoRateCentiHz: number;
+  vibratoDepthCentiHz: number;
+}
+
 export class ESP32SynthEngine {
   private static instance: ESP32SynthEngine | null = null;
   private audioCtx: AudioContext | null = null;
@@ -35,13 +46,33 @@ export class ESP32SynthEngine {
   private isWorkletRunning = false;
   private telemetryCallbacks: Set<(t: EngineTelemetry) => void> = new Set();
   
-  // Voice allocation tracking for polyphonic mode
+  // Voice allocation & MIDI modulation tracking
   private polyphonyVoices = 8;
   private activeNoteVoices: Map<number, number> = new Map(); // midiNote -> voice index
+  private voiceSlots: Map<number, VoiceSlotInfo> = new Map();  // voice index -> details
   private nextVoiceIdx = 0;
+
+  // Real-time MIDI Parameters
+  private currentPitchBendNorm: number = 0; // -1.0 to +1.0
+  private pitchBendRangeSemitones: number = 2; // +/- 2 semitones default
+  private currentModWheelValue: number = 0; // 0 to 127
+  private defaultVibratoRateCentiHz: number = 500;
+  private defaultVibratoDepthCentiHz: number = 0;
 
   // Analyser node for oscilloscope and spectrum visualization
   private analyser: AnalyserNode | null = null;
+
+  // Real-time 48kHz WAV PCM Recording
+  private isRecording: boolean = false;
+  private recordingNode: ScriptProcessorNode | null = null;
+  private recordingSilentGain: GainNode | null = null;
+  private recordedBuffersL: Float32Array[] = [];
+  private recordedBuffersR: Float32Array[] = [];
+  private totalRecordedFrames: number = 0;
+  private recordingStartTime: number = 0;
+  private recordingTimerId: number | null = null;
+  private recordingListeners: Set<(isRec: boolean, durationMs: number) => void> = new Set();
+  private lastRecordedBlob: Blob | null = null;
 
   public static getInstance(): ESP32SynthEngine {
     if (!ESP32SynthEngine.instance) {
@@ -119,7 +150,32 @@ export class ESP32SynthEngine {
           });
 
           this.workletNode.port.onmessage = (e) => {
-            if (e.data.type === 'TELEMETRY') {
+            if (e.data.type === 'TELEMETRY_PACKED') {
+              // High-speed decoding of flat Int32 packed telemetry
+              const packed = e.data.packedData as number[];
+              const count = e.data.count || 0;
+              const activeVoices: VoiceTelemetry[] = [];
+              for (let i = 0; i < count; i++) {
+                const base = i * 6;
+                activeVoices.push({
+                  voice: packed[base],
+                  active: true,
+                  freqCentiHz: packed[base + 1],
+                  env8Bit: packed[base + 2],
+                  output8Bit: packed[base + 3],
+                  envState: packed[base + 4] as EnvState,
+                  waveType: packed[base + 5] as WaveType,
+                });
+              }
+
+              const telemetry: EngineTelemetry = {
+                activeVoices,
+                cpuLoad: e.data.cpuLoad,
+                peak: e.data.peak,
+                masterVol: e.data.masterVol,
+              };
+              this.telemetryCallbacks.forEach(cb => cb(telemetry));
+            } else if (e.data.type === 'TELEMETRY') {
               this.telemetryCallbacks.forEach(cb => cb(e.data));
             } else if (e.data.type === 'WASM_READY') {
               this.isWorkletRunning = true;
@@ -154,47 +210,60 @@ export class ESP32SynthEngine {
           this.fallbackScratchNotesPtr = exp.malloc(32 * 4);
         }
 
+        let cachedMemBuffer: ArrayBuffer | null = null;
+        let cachedHeapI16: Int16Array | null = null;
+        let fallbackTelemetryCounter = 0;
+
         this.scriptNode = this.audioCtx.createScriptProcessor(512, 0, 2);
         this.scriptNode.onaudioprocess = (audioEvent) => {
           const outL = audioEvent.outputBuffer.getChannelData(0);
           const outR = audioEvent.outputBuffer.getChannelData(1);
           const numFrames = outL.length;
           
+          if (cachedMemBuffer !== exp.memory.buffer) {
+            cachedMemBuffer = exp.memory.buffer;
+            cachedHeapI16 = new Int16Array(cachedMemBuffer!);
+          }
+
           const ptr = exp.synth_renderStereo(numFrames);
-          const mem = new Int16Array(exp.memory.buffer, ptr, numFrames * 2);
+          const mem = cachedHeapI16!;
+          const offset = ptr >> 1;
 
           let peak = 0;
           for (let i = 0; i < numFrames; i++) {
-            const l = mem[i * 2] / 32768.0;
-            const r = mem[i * 2 + 1] / 32768.0;
+            const l = mem[offset + i * 2] / 32768.0;
+            const r = mem[offset + i * 2 + 1] / 32768.0;
             outL[i] = l;
             outR[i] = r;
             const a = Math.abs(l);
             if (a > peak) peak = a;
           }
 
-          // Telemetry
-          const activeVoices: import('./types').VoiceTelemetry[] = [];
-          for (let v = 0; v < 16; v++) {
-            if (exp.synth_isVoiceActive(v)) {
-              activeVoices.push({
-                voice: v,
-                active: true,
-                freqCentiHz: exp.synth_getFrequencyCentiHz(v),
-                env8Bit: exp.synth_getEnv8Bit(v),
-                output8Bit: exp.synth_getOutput8Bit(v),
-                envState: exp.synth_getEnvState(v),
-                waveType: exp.synth_getWaveType(v),
-              });
+          // Telemetry decimation
+          fallbackTelemetryCounter++;
+          if (fallbackTelemetryCounter % 8 === 0) {
+            const activeVoices: VoiceTelemetry[] = [];
+            for (let v = 0; v < 16; v++) {
+              if (exp.synth_isVoiceActive(v)) {
+                activeVoices.push({
+                  voice: v,
+                  active: true,
+                  freqCentiHz: exp.synth_getFrequencyCentiHz(v),
+                  env8Bit: exp.synth_getEnv8Bit(v),
+                  output8Bit: exp.synth_getOutput8Bit(v),
+                  envState: exp.synth_getEnvState(v),
+                  waveType: exp.synth_getWaveType(v),
+                });
+              }
             }
-          }
 
-          this.telemetryCallbacks.forEach(cb => cb({
-            activeVoices,
-            cpuLoad: exp.synth_getCPULoad(),
-            peak,
-            masterVol: exp.synth_getMasterVolume(),
-          }));
+            this.telemetryCallbacks.forEach(cb => cb({
+              activeVoices,
+              cpuLoad: exp.synth_getCPULoad(),
+              peak,
+              masterVol: exp.synth_getMasterVolume(),
+            }));
+          }
         };
 
         this.scriptNode.connect(this.analyser);
@@ -210,6 +279,10 @@ export class ESP32SynthEngine {
 
   public getAnalyser(): AnalyserNode | null {
     return this.analyser;
+  }
+
+  public getAudioContext(): AudioContext | null {
+    return this.audioCtx;
   }
 
   public subscribeTelemetry(callback: (t: EngineTelemetry) => void): () => void {
@@ -273,18 +346,101 @@ export class ESP32SynthEngine {
     }
   }
 
+  // --- MIDI Modulation & Pitch Bend Calculations ---
+  public calculateBentFrequency(baseFreqCentiHz: number, bendNorm: number, rangeSemitones = this.pitchBendRangeSemitones): number {
+    if (Math.abs(bendNorm) < 0.0001) return baseFreqCentiHz;
+    const semitones = bendNorm * rangeSemitones;
+    return Math.round(baseFreqCentiHz * Math.pow(2, semitones / 12));
+  }
+
+  /**
+   * Applies smooth Pitch Bend in CentiHz to all active polyphonic voices in real time
+   * @param normalized Pitch bend between -1.0 and +1.0
+   * @param rangeSemitones Bend range in semitones (default +/- 2 semitones)
+   */
+  public setPitchBend(normalized: number, rangeSemitones: number = 2) {
+    this.pitchBendRangeSemitones = rangeSemitones;
+    this.currentPitchBendNorm = Math.max(-1, Math.min(1, normalized));
+
+    for (const [voice, slot] of this.voiceSlots.entries()) {
+      const bentFreq = this.calculateBentFrequency(slot.baseFreqCentiHz, this.currentPitchBendNorm);
+      this.sendCommand({
+        type: 'SET_FREQ',
+        voice,
+        freqCentiHz: bentFreq,
+      });
+    }
+  }
+
+  public getPitchBend(): number {
+    return this.currentPitchBendNorm;
+  }
+
+  /**
+   * Applies Modulation Wheel (CC #1) dynamically controlling Vibrato Depth (setVibrato) on all active voices
+   * @param value7Bit Modulation value 0 to 127
+   */
+  public setModulationWheel(value7Bit: number) {
+    this.currentModWheelValue = Math.max(0, Math.min(127, value7Bit));
+    // Maps 0..127 to 0..400 CentiHz vibrato depth
+    const depthCentiHz = Math.round((this.currentModWheelValue / 127) * 400);
+
+    for (const [voice, slot] of this.voiceSlots.entries()) {
+      slot.vibratoDepthCentiHz = depthCentiHz;
+      this.sendCommand({
+        type: 'SET_VIBRATO',
+        voice,
+        rateCentiHz: slot.vibratoRateCentiHz || this.defaultVibratoRateCentiHz,
+        depthCentiHz,
+      });
+    }
+  }
+
+  public getModulationWheel(): number {
+    return this.currentModWheelValue;
+  }
+
+  public setDefaultVibrato(rateCentiHz: number, depthCentiHz: number) {
+    this.defaultVibratoRateCentiHz = rateCentiHz;
+    this.defaultVibratoDepthCentiHz = depthCentiHz;
+  }
+
   // --- Polyphonic Note Triggering ---
   public playMidiNote(midiNote: number, freqCentiHz: number, volume8Bit: number = 255): number {
     const voice = this.nextVoiceIdx;
     this.nextVoiceIdx = (this.nextVoiceIdx + 1) % this.polyphonyVoices;
     this.activeNoteVoices.set(midiNote, voice);
 
+    // Apply real-time pitch bend offset immediately
+    const effectiveFreq = this.calculateBentFrequency(freqCentiHz, this.currentPitchBendNorm);
+    const effectiveVibratoDepth = this.currentModWheelValue > 0
+      ? Math.round((this.currentModWheelValue / 127) * 400)
+      : this.defaultVibratoDepthCentiHz;
+
+    this.voiceSlots.set(voice, {
+      voice,
+      midiNote,
+      baseFreqCentiHz: freqCentiHz,
+      volume: volume8Bit,
+      vibratoRateCentiHz: this.defaultVibratoRateCentiHz,
+      vibratoDepthCentiHz: effectiveVibratoDepth,
+    });
+
     this.sendCommand({
       type: 'NOTE_ON',
       voice,
-      freqCentiHz,
+      freqCentiHz: effectiveFreq,
       volume: volume8Bit,
     });
+
+    if (effectiveVibratoDepth > 0) {
+      this.sendCommand({
+        type: 'SET_VIBRATO',
+        voice,
+        rateCentiHz: this.defaultVibratoRateCentiHz,
+        depthCentiHz: effectiveVibratoDepth,
+      });
+    }
 
     return voice;
   }
@@ -297,20 +453,34 @@ export class ESP32SynthEngine {
         voice,
       });
       this.activeNoteVoices.delete(midiNote);
+      this.voiceSlots.delete(voice);
     }
   }
 
   // --- Direct 1:1 Voice API ---
   public noteOn(voice: number, freqCentiHz: number, volume8Bit: number) {
-    this.sendCommand({ type: 'NOTE_ON', voice, freqCentiHz, volume: volume8Bit });
+    const effectiveFreq = this.calculateBentFrequency(freqCentiHz, this.currentPitchBendNorm);
+    this.voiceSlots.set(voice, {
+      voice,
+      midiNote: 0,
+      baseFreqCentiHz: freqCentiHz,
+      volume: volume8Bit,
+      vibratoRateCentiHz: this.defaultVibratoRateCentiHz,
+      vibratoDepthCentiHz: this.defaultVibratoDepthCentiHz,
+    });
+    this.sendCommand({ type: 'NOTE_ON', voice, freqCentiHz: effectiveFreq, volume: volume8Bit });
   }
 
   public noteOff(voice: number) {
+    this.voiceSlots.delete(voice);
     this.sendCommand({ type: 'NOTE_OFF', voice });
   }
 
   public setFrequency(voice: number, freqCentiHz: number) {
-    this.sendCommand({ type: 'SET_FREQ', voice, freqCentiHz });
+    const slot = this.voiceSlots.get(voice);
+    if (slot) slot.baseFreqCentiHz = freqCentiHz;
+    const effectiveFreq = this.calculateBentFrequency(freqCentiHz, this.currentPitchBendNorm);
+    this.sendCommand({ type: 'SET_FREQ', voice, freqCentiHz: effectiveFreq });
   }
 
   public setVolume(voice: number, volume8Bit: number) {
@@ -350,6 +520,13 @@ export class ESP32SynthEngine {
   }
 
   public setVibrato(voice: number, rateCentiHz: number, depthCentiHz: number) {
+    this.defaultVibratoRateCentiHz = rateCentiHz;
+    this.defaultVibratoDepthCentiHz = depthCentiHz;
+    const slot = this.voiceSlots.get(voice);
+    if (slot) {
+      slot.vibratoRateCentiHz = rateCentiHz;
+      slot.vibratoDepthCentiHz = depthCentiHz;
+    }
     this.sendCommand({ type: 'SET_VIBRATO', voice, rateCentiHz, depthCentiHz });
   }
 
@@ -431,10 +608,123 @@ export class ESP32SynthEngine {
 
   public stopAllVoices() {
     this.activeNoteVoices.clear();
+    this.voiceSlots.clear();
     this.sendCommand({ type: 'STOP_ALL' });
   }
 
   public setPolyphonyCount(count: number) {
     this.polyphonyVoices = Math.max(1, Math.min(16, count));
+  }
+
+  // --- Real-Time 48kHz Stereo WAV Audio Recording ---
+  public startRecording(): boolean {
+    if (this.isRecording || !this.audioCtx) return false;
+
+    const sourceNode = this.workletNode || this.scriptNode;
+    if (!sourceNode) return false;
+
+    this.recordedBuffersL = [];
+    this.recordedBuffersR = [];
+    this.totalRecordedFrames = 0;
+    this.isRecording = true;
+    this.recordingStartTime = Date.now();
+
+    // Tap synthesizer PCM audio using ScriptProcessor
+    this.recordingNode = this.audioCtx.createScriptProcessor(4096, 2, 2);
+    this.recordingNode.onaudioprocess = (e) => {
+      if (!this.isRecording) return;
+      const ch0 = e.inputBuffer.getChannelData(0);
+      const ch1 = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : ch0;
+
+      this.recordedBuffersL.push(new Float32Array(ch0));
+      this.recordedBuffersR.push(new Float32Array(ch1));
+      this.totalRecordedFrames += ch0.length;
+    };
+
+    // Parallel connection to prevent any audio path interruption
+    sourceNode.connect(this.recordingNode);
+    this.recordingSilentGain = this.audioCtx.createGain();
+    this.recordingSilentGain.gain.value = 0;
+    this.recordingNode.connect(this.recordingSilentGain);
+    this.recordingSilentGain.connect(this.audioCtx.destination);
+
+    if (this.recordingTimerId !== null) window.clearInterval(this.recordingTimerId);
+    this.recordingTimerId = window.setInterval(() => {
+      const elapsed = Date.now() - this.recordingStartTime;
+      this.recordingListeners.forEach(cb => cb(true, elapsed));
+    }, 200);
+
+    this.recordingListeners.forEach(cb => cb(true, 0));
+    return true;
+  }
+
+  public stopRecording(): Blob | null {
+    if (!this.isRecording) return null;
+    this.isRecording = false;
+
+    if (this.recordingTimerId !== null) {
+      window.clearInterval(this.recordingTimerId);
+      this.recordingTimerId = null;
+    }
+
+    if (this.recordingNode) {
+      try {
+        this.recordingNode.disconnect();
+      } catch {}
+      this.recordingNode = null;
+    }
+
+    if (this.recordingSilentGain) {
+      try {
+        this.recordingSilentGain.disconnect();
+      } catch {}
+      this.recordingSilentGain = null;
+    }
+
+    if (this.totalRecordedFrames === 0) {
+      this.recordingListeners.forEach(cb => cb(false, 0));
+      return null;
+    }
+
+    // Concatenate chunks
+    const mergedL = new Float32Array(this.totalRecordedFrames);
+    const mergedR = new Float32Array(this.totalRecordedFrames);
+    let offset = 0;
+    for (let i = 0; i < this.recordedBuffersL.length; i++) {
+      mergedL.set(this.recordedBuffersL[i], offset);
+      mergedR.set(this.recordedBuffersR[i], offset);
+      offset += this.recordedBuffersL[i].length;
+    }
+
+    const sampleRate = this.audioCtx?.sampleRate || 48000;
+    const wavBlob = encodeWAV(mergedL, mergedR, sampleRate);
+    this.lastRecordedBlob = wavBlob;
+
+    this.recordedBuffersL = [];
+    this.recordedBuffersR = [];
+    this.totalRecordedFrames = 0;
+
+    this.recordingListeners.forEach(cb => cb(false, 0));
+    return wavBlob;
+  }
+
+  public isRecordingAudio(): boolean {
+    return this.isRecording;
+  }
+
+  public getLastRecordedBlob(): Blob | null {
+    return this.lastRecordedBlob;
+  }
+
+  public downloadWAV(blob?: Blob, filename?: string) {
+    const target = blob || this.lastRecordedBlob;
+    if (target) {
+      downloadWAVBlob(target, filename);
+    }
+  }
+
+  public subscribeRecording(callback: (isRec: boolean, durationMs: number) => void): () => void {
+    this.recordingListeners.add(callback);
+    return () => this.recordingListeners.delete(callback);
   }
 }

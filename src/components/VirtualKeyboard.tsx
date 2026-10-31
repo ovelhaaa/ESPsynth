@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { midiToCentiHz, NOTE_NAMES } from '../audio/notes';
-import { ChevronLeft, ChevronRight, Music2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Music2, Sliders, Activity } from 'lucide-react';
 
 interface VirtualKeyboardProps {
   onNoteOn: (midiNote: number, freqCentiHz: number) => void;
   onNoteOff: (midiNote: number) => void;
   activeVoicesMidiNotes?: number[];
   midiConnectedDevice?: string | null;
+  pitchBend?: number; // -1.0 to +1.0
+  modWheel?: number; // 0 to 127
+  onPitchBendChange?: (normalized: number) => void;
+  onModWheelChange?: (value7Bit: number) => void;
 }
 
 // Computer keyboard mapping
@@ -35,6 +39,10 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
   onNoteOff,
   activeVoicesMidiNotes = [],
   midiConnectedDevice,
+  pitchBend = 0,
+  modWheel = 0,
+  onPitchBendChange,
+  onModWheelChange,
 }) => {
   const [baseOctave, setBaseOctave] = useState<number>(4);
   const [pressedNotes, setPressedNotes] = useState<Set<number>>(new Set());
@@ -118,7 +126,7 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
         <div className="flex items-center gap-2">
           <Music2 className="w-5 h-5 text-emerald-400" />
           <h2 className="text-sm font-mono font-bold text-slate-200 uppercase tracking-wider">
-            Virtual Keyboard (CentiHz Pitch Trigger)
+            Virtual Keyboard (CentiHz Pitch Trigger & MIDI Wheels)
           </h2>
           {midiConnectedDevice && (
             <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/40 px-2 py-0.5 rounded-full flex items-center gap-1">
@@ -157,81 +165,131 @@ export const VirtualKeyboard: React.FC<VirtualKeyboardProps> = ({
         </div>
       </div>
 
-      {/* Keyboard Bed */}
-      <div className="relative h-44 bg-slate-950 rounded-lg border border-slate-800 p-2 overflow-hidden shadow-inner select-none">
-        <div className="relative w-full h-full flex">
-          {keys.map((k) => {
-            const isPressed = pressedNotes.has(k.midi) || activeVoicesMidiNotes.includes(k.midi);
+      {/* Main Keyboard Bed + Pitch & Mod Wheels Container */}
+      <div className="flex gap-4">
+        {/* Pitch Bend & Mod Wheels */}
+        {(onPitchBendChange || onModWheelChange) && (
+          <div className="flex gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800 shrink-0">
+            {/* Pitch Bend Wheel (Bipolar with spring-back) */}
+            <div className="flex flex-col items-center justify-between w-9 select-none">
+              <span className="text-[9px] font-mono font-bold text-slate-400">PITCH</span>
+              <div className="relative w-7 h-28 bg-slate-900 rounded border border-slate-700 flex items-center justify-center overflow-hidden">
+                {/* Center marker line */}
+                <div className="absolute top-1/2 left-0 right-0 h-[1.5px] bg-slate-500" />
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={Math.round(pitchBend * 100)}
+                  onChange={(e) => onPitchBendChange?.(Number(e.target.value) / 100)}
+                  onMouseUp={() => onPitchBendChange?.(0)}
+                  onTouchEnd={() => onPitchBendChange?.(0)}
+                  className="w-24 h-5 -rotate-90 origin-center accent-blue-400 cursor-pointer absolute"
+                  title="Pitch Bend Wheel (Spring-Back Center)"
+                />
+              </div>
+              <span className="text-[9px] font-mono text-blue-400">
+                {pitchBend > 0 ? `+${(pitchBend * 2).toFixed(1)}` : (pitchBend * 2).toFixed(1)}st
+              </span>
+            </div>
 
-            if (!k.isBlack) {
-              return (
-                <button
-                  key={k.midi}
-                  onMouseDown={() => handleNoteDown(k.midi)}
-                  onMouseUp={() => handleNoteUp(k.midi)}
-                  onMouseLeave={() => {
-                    if (pressedNotes.has(k.midi)) handleNoteUp(k.midi);
-                  }}
-                  onTouchStart={(e) => {
-                    e.preventDefault();
-                    handleNoteDown(k.midi);
-                  }}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleNoteUp(k.midi);
-                  }}
-                  className={`flex-1 h-full rounded-b-md border transition-colors cursor-pointer flex flex-col justify-end items-center pb-2 relative z-0 ${
-                    isPressed
-                      ? 'bg-emerald-400 border-emerald-300 text-slate-950 font-bold shadow-[0_0_15px_rgba(52,211,153,0.8)]'
-                      : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
-                  }`}
-                  aria-label={`${k.noteName}${k.octave} (${k.centiHz} cHz)`}
-                >
-                  <span className="text-[11px] font-bold font-mono leading-none">
-                    {k.noteName}{k.octave}
-                  </span>
-                  <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">
-                    {k.centiHz}
-                  </span>
-                </button>
-              );
-            } else {
-              return (
-                <button
-                  key={k.midi}
-                  onMouseDown={() => handleNoteDown(k.midi)}
-                  onMouseUp={() => handleNoteUp(k.midi)}
-                  onMouseLeave={() => {
-                    if (pressedNotes.has(k.midi)) handleNoteUp(k.midi);
-                  }}
-                  onTouchStart={(e) => {
-                    e.preventDefault();
-                    handleNoteDown(k.midi);
-                  }}
-                  onTouchEnd={(e) => {
-                    e.preventDefault();
-                    handleNoteUp(k.midi);
-                  }}
-                  className={`w-[4.2%] h-[60%] rounded-b-md border transition-colors cursor-pointer flex flex-col justify-end items-center pb-1.5 absolute z-10 ${
-                    isPressed
-                      ? 'bg-emerald-500 border-emerald-400 text-white font-bold shadow-[0_0_15px_rgba(16,185,129,0.9)]'
-                      : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
-                  }`}
-                  style={{
-                    left: `${getBlackKeyOffsetPercentage(k.midi, startMidi)}%`,
-                  }}
-                  aria-label={`${k.noteName}${k.octave} (${k.centiHz} cHz)`}
-                >
-                  <span className="text-[9px] font-mono font-bold leading-none">
-                    {k.noteName}
-                  </span>
-                  <span className="text-[8px] font-mono text-emerald-400/80 leading-none">
-                    {k.centiHz}
-                  </span>
-                </button>
-              );
-            }
-          })}
+            {/* Modulation Wheel (CC #1 - Vibrato Depth) */}
+            <div className="flex flex-col items-center justify-between w-9 select-none">
+              <span className="text-[9px] font-mono font-bold text-slate-400">MOD</span>
+              <div className="relative w-7 h-28 bg-slate-900 rounded border border-slate-700 flex items-center justify-center overflow-hidden">
+                <input
+                  type="range"
+                  min="0"
+                  max="127"
+                  value={modWheel}
+                  onChange={(e) => onModWheelChange?.(Number(e.target.value))}
+                  className="w-24 h-5 -rotate-90 origin-center accent-emerald-400 cursor-pointer absolute"
+                  title="Modulation Wheel (CC #1 - Dynamic Vibrato Depth)"
+                />
+              </div>
+              <span className="text-[9px] font-mono text-emerald-400">
+                {modWheel}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Keyboard Bed */}
+        <div className="relative flex-1 h-44 bg-slate-950 rounded-lg border border-slate-800 p-2 overflow-hidden shadow-inner select-none">
+          <div className="relative w-full h-full flex">
+            {keys.map((k) => {
+              const isPressed = pressedNotes.has(k.midi) || activeVoicesMidiNotes.includes(k.midi);
+
+              if (!k.isBlack) {
+                return (
+                  <button
+                    key={k.midi}
+                    onMouseDown={() => handleNoteDown(k.midi)}
+                    onMouseUp={() => handleNoteUp(k.midi)}
+                    onMouseLeave={() => {
+                      if (pressedNotes.has(k.midi)) handleNoteUp(k.midi);
+                    }}
+                    onTouchStart={(e) => {
+                      e.preventDefault();
+                      handleNoteDown(k.midi);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      handleNoteUp(k.midi);
+                    }}
+                    className={`flex-1 h-full rounded-b-md border transition-colors cursor-pointer flex flex-col justify-end items-center pb-2 relative z-0 ${
+                      isPressed
+                        ? 'bg-emerald-400 border-emerald-300 text-slate-950 font-bold shadow-[0_0_15px_rgba(52,211,153,0.8)]'
+                        : 'bg-white hover:bg-slate-100 border-slate-300 text-slate-700'
+                    }`}
+                    aria-label={`${k.noteName}${k.octave} (${k.centiHz} cHz)`}
+                  >
+                    <span className="text-[11px] font-bold font-mono leading-none">
+                      {k.noteName}{k.octave}
+                    </span>
+                    <span className="text-[9px] font-mono text-slate-500 mt-0.5 leading-none">
+                      {k.centiHz}
+                    </span>
+                  </button>
+                );
+              } else {
+                return (
+                  <button
+                    key={k.midi}
+                    onMouseDown={() => handleNoteDown(k.midi)}
+                    onMouseUp={() => handleNoteUp(k.midi)}
+                    onMouseLeave={() => {
+                      if (pressedNotes.has(k.midi)) handleNoteUp(k.midi);
+                    }}
+                    onTouchStart={(e) => {
+                      e.preventDefault();
+                      handleNoteDown(k.midi);
+                    }}
+                    onTouchEnd={(e) => {
+                      e.preventDefault();
+                      handleNoteUp(k.midi);
+                    }}
+                    className={`w-[4.2%] h-[60%] rounded-b-md border transition-colors cursor-pointer flex flex-col justify-end items-center pb-1.5 absolute z-10 ${
+                      isPressed
+                        ? 'bg-emerald-500 border-emerald-400 text-white font-bold shadow-[0_0_15px_rgba(16,185,129,0.9)]'
+                        : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-slate-300'
+                    }`}
+                    style={{
+                      left: `${getBlackKeyOffsetPercentage(k.midi, startMidi)}%`,
+                    }}
+                    aria-label={`${k.noteName}${k.octave} (${k.centiHz} cHz)`}
+                  >
+                    <span className="text-[9px] font-mono font-bold leading-none">
+                      {k.noteName}
+                    </span>
+                    <span className="text-[8px] font-mono text-emerald-400/80 leading-none">
+                      {k.centiHz}
+                    </span>
+                  </button>
+                );
+              }
+            })}
+          </div>
         </div>
       </div>
     </div>

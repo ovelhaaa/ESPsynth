@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { WaveType, CustomWavePatch } from '../audio/types';
+import { WaveType, CustomWavePatch, EnvState } from '../audio/types';
 import {
   Sliders,
   Zap,
@@ -48,6 +48,7 @@ interface VoicePanelProps {
   config: VoiceConfig;
   onChange: (updated: Partial<VoiceConfig>) => void;
   activeEnvLevel?: number;
+  activeEnvState?: EnvState;
   onOpenCodeExport?: () => void;
 }
 
@@ -175,6 +176,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
   config,
   onChange,
   activeEnvLevel,
+  activeEnvState,
   onOpenCodeExport,
 }) => {
   const [mutateCategory, setMutateCategory] = useState<'any' | 'lead' | 'bass' | 'pad' | 'fm' | 'chiptune'>('any');
@@ -642,6 +644,7 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
               releaseMs={config.releaseMs}
               smoothEnv={config.smoothEnv}
               activeEnvLevel={activeEnvLevel}
+              activeEnvState={activeEnvState}
             />
 
             <div>
