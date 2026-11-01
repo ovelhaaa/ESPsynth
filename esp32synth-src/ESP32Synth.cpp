@@ -432,6 +432,12 @@ void IRAM_ATTR ESP32Synth::render(void* buffer, int32_t** busBuffers, int sample
 
             if (startEnv == 0 && vo->currEnvVal == 0 && vo->envState != ENV_ATTACK) break;
 
+            if (vo->freqVal == 0) {
+                bufOffset += stepSamples;
+                samplesRem -= stepSamples;
+                continue;
+            }
+
             int32_t* currentMixBuf = busBuffers[vo->targetBus] + bufOffset;
 
             if (!vo->inst) {

@@ -4,7 +4,7 @@
  * Includes complete MIDI Pitch Bend & Mod Wheel tracking, optimized telemetry decoding, and 48kHz PCM WAV export.
  */
 
-import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry, EngineTelemetry } from './types';
+import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry, EngineTelemetry, BitDepth } from './types';
 import { WASM_BASE64 } from './wasm_binary';
 import { WORKLET_CODE } from './worklet_source';
 import { encodeWAV, downloadWAVBlob } from './wavExport';
@@ -337,6 +337,40 @@ export class ESP32SynthEngine {
         case 'DETACH_ARPEGGIO':
           exp.synth_detachArpeggio(msg.voice);
           break;
+        case 'SET_WAVETABLE': {
+          const v = msg.voice !== undefined ? msg.voice : 0;
+          const depth = msg.depth !== undefined ? msg.depth : 2;
+          const size = msg.size || (msg.samples ? msg.samples.length : 256);
+          let ptr = 0;
+          if (typeof exp.synth_getWavetableBuffer === 'function') {
+            ptr = exp.synth_getWavetableBuffer(v);
+          } else if (typeof exp.malloc === 'function') {
+            ptr = exp.malloc(4096);
+          }
+          if (ptr && msg.samples && exp.memory) {
+            const mem = new Uint8Array(exp.memory.buffer);
+            let rawBytes: Uint8Array | null = null;
+            if (msg.samples instanceof Uint8Array) {
+              rawBytes = msg.samples;
+            } else if (msg.samples instanceof Int16Array) {
+              rawBytes = new Uint8Array(msg.samples.buffer, msg.samples.byteOffset, msg.samples.byteLength);
+            } else if (Array.isArray(msg.samples)) {
+              if (depth === 2) {
+                const i16 = new Int16Array(msg.samples);
+                rawBytes = new Uint8Array(i16.buffer);
+              } else {
+                rawBytes = new Uint8Array(msg.samples);
+              }
+            }
+            if (rawBytes) {
+              mem.set(rawBytes.subarray(0, Math.min(rawBytes.length, 4096)), ptr);
+            }
+            if (typeof exp.synth_setWavetable === 'function') {
+              exp.synth_setWavetable(v, ptr, size, depth);
+            }
+          }
+          break;
+        }
         case 'STOP_ALL':
           for (let v = 0; v < 80; v++) {
             if (exp.synth_isVoiceActive(v)) exp.synth_noteOff(v);
@@ -596,6 +630,33 @@ export class ESP32SynthEngine {
 
   public setCustomParam(voice: number, paramId: number, value: number) {
     this.sendCommand({ type: 'SET_CUSTOM_PARAM', voice, paramId, value });
+  }
+
+  public setWavetable(
+    samples: Int16Array | Uint8Array | number[],
+    size: number,
+    depth: BitDepth = BitDepth.BITS_16,
+    voice?: number
+  ) {
+    if (voice !== undefined) {
+      this.sendCommand({
+        type: 'SET_WAVETABLE',
+        voice,
+        samples,
+        size,
+        depth,
+      });
+    } else {
+      for (let v = 0; v < this.polyphonyVoices; v++) {
+        this.sendCommand({
+          type: 'SET_WAVETABLE',
+          voice: v,
+          samples,
+          size,
+          depth,
+        });
+      }
+    }
   }
 
   public setArpeggio(voice: number, durationMs: number, notesCentiHz: number[]) {

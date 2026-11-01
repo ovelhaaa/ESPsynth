@@ -18,6 +18,7 @@ interface ArpeggiatorPanelProps {
   onPortamentoChange: (ms: number) => void;
   onAuditionArp?: (active: boolean) => void;
   isAuditioning?: boolean;
+  onSimulateGlide?: () => void;
 }
 
 const CHIPTUNE_PRESETS = [
@@ -73,6 +74,7 @@ export const ArpeggiatorPanel: React.FC<ArpeggiatorPanelProps> = ({
   onPortamentoChange,
   onAuditionArp,
   isAuditioning = false,
+  onSimulateGlide,
 }) => {
   const [playheadStep, setPlayheadStep] = useState<number>(0);
   const [isGlidingTest, setIsGlidingTest] = useState<boolean>(false);
@@ -162,10 +164,13 @@ export const ArpeggiatorPanel: React.FC<ArpeggiatorPanelProps> = ({
 
   const triggerGlideTest = useCallback(() => {
     setIsGlidingTest(true);
+    if (onSimulateGlide) {
+      onSimulateGlide();
+    }
     setTimeout(() => {
       setIsGlidingTest(false);
     }, Math.max(300, portamentoMs + 100));
-  }, [portamentoMs]);
+  }, [portamentoMs, onSimulateGlide]);
 
   // Current division label
   const currentTicks = Math.round(arpConfig.durationMs / tickPeriodMs);

@@ -2,13 +2,18 @@ import React, { useState } from 'react';
 import { X, Copy, Check, Terminal, Cpu } from 'lucide-react';
 import { VoiceConfig } from './VoicePanel';
 import { MasterConfig } from './MasterPanel';
-import { WaveType, CustomWavePatch, BusFXPatch, GlobalDSPPatch } from '../audio/types';
+import { ArpConfig } from './ArpeggiatorPanel';
+import { WaveType, CustomWavePatch, BusFXPatch, GlobalDSPPatch, BitDepth } from '../audio/types';
+import { transposeCentiHz } from '../audio/notes';
 
 interface CodeExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   voiceConfig: VoiceConfig;
   masterConfig: MasterConfig;
+  arpConfig?: ArpConfig;
+  customWavetable?: number[];
+  wavetableDepth?: BitDepth;
 }
 
 export const CodeExportModal: React.FC<CodeExportModalProps> = ({
@@ -16,6 +21,9 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
   onClose,
   voiceConfig,
   masterConfig,
+  arpConfig,
+  customWavetable,
+  wavetableDepth = BitDepth.BITS_16,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -29,6 +37,7 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
       case WaveType.WAVE_SINE: return 'WAVE_SINE';
       case WaveType.WAVE_TRIANGLE: return 'WAVE_TRIANGLE';
       case WaveType.WAVE_NOISE: return 'WAVE_NOISE';
+      case WaveType.WAVE_WAVETABLE: return 'WAVE_WAVETABLE';
       default: return 'WAVE_SAW';
     }
   };
@@ -63,9 +72,62 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
   };
 
   const isCustomPatch = voiceConfig.customPatch !== CustomWavePatch.BASIC;
+  const isWavetable = !isCustomPatch && voiceConfig.waveType === WaveType.WAVE_WAVETABLE;
   const customPatchName = getCustomPatchCode(voiceConfig.customPatch);
   const busFXName = getBusFXCode(masterConfig.bus1FXPatch);
   const globalDSPName = getGlobalDSPCode(masterConfig.globalDSPPatch);
+
+  const bitDepthMacro =
+    wavetableDepth === BitDepth.BITS_4 ? 'BITS_4' :
+    wavetableDepth === BitDepth.BITS_8 ? 'BITS_8' : 'BITS_16';
+
+  // Format custom wavetable in rows of 16 values
+  let wavetableCode = '';
+  if (isWavetable && customWavetable && customWavetable.length > 0) {
+    const tableSize = customWavetable.length;
+    const lines: string[] = [];
+    for (let i = 0; i < tableSize; i += 16) {
+      const slice = customWavetable.slice(i, i + 16);
+      lines.push('  ' + slice.map((v) => String(v).padStart(6, ' ')).join(', '));
+    }
+    wavetableCode = `// ----------------------------------------------------------------------------
+// Custom Wavetable Baked in PROGMEM (256 samples, ${bitDepthMacro})
+// ----------------------------------------------------------------------------
+const int16_t customWavetable[${tableSize}] PROGMEM = {
+${lines.join(',\n')}
+};
+`;
+  }
+
+  // Generate arpeggio note list if enabled
+  let arpSetupCode = '';
+  if (arpConfig && arpConfig.enabled) {
+    const rootC4 = 26163; // NOTE_C4 in CentiHz
+    const stepCount = Math.min(16, arpConfig.stepCount);
+    const freqs: string[] = [];
+    for (let i = 0; i < stepCount; i++) {
+      if (arpConfig.activeSteps[i]) {
+        const cHz = transposeCentiHz(rootC4, arpConfig.steps[i] ?? 0);
+        freqs.push(`${cHz}UL`);
+      } else {
+        freqs.push('0UL'); // 0 = Rhythmic Rest / Gate Pause
+      }
+    }
+    arpSetupCode = `
+  // Hardware Arpeggiator (${stepCount} Steps, ${arpConfig.durationMs}ms per step)
+  // Step frequencies in CentiHz (0 = Musical Rest / Gate Off)
+  synth.setArpeggio(0, ${arpConfig.durationMs}, ${freqs.join(', ')});
+`;
+  }
+
+  // Portamento code snippet
+  const portamentoDemoCode = voiceConfig.portamentoMs > 0
+    ? `  // Hardware Pitch Glide Demo (Portamento: ${voiceConfig.portamentoMs}ms)
+  synth.slideFreqTo(0, NOTE_G4, ${voiceConfig.portamentoMs});
+  delay(${Math.max(1200, voiceConfig.portamentoMs * 2 + 300)});
+  synth.slideFreqTo(0, NOTE_C4, ${voiceConfig.portamentoMs});
+  delay(${Math.max(1200, voiceConfig.portamentoMs * 2 + 300)});`
+    : `  delay(10);`;
 
   const sketchCode = `/**
  * ESP32Synth Timbre Configuration Sketch
@@ -85,7 +147,7 @@ export const CodeExportModal: React.FC<CodeExportModalProps> = ({
 #define I2S_DOUT_PIN 22
 
 ESP32Synth synth;
-
+${wavetableCode}
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -100,7 +162,7 @@ void setup() {
 ${masterConfig.bitcrush > 0 ? `  synth.setMasterBitcrush(${masterConfig.bitcrush});    // Lo-Fi DAC bitcrush\n` : ''}
   // 3. Configure Polyphonic Voices (${voiceConfig.polyphony} Voices)
   for (int v = 0; v < ${voiceConfig.polyphony}; v++) {
-${isCustomPatch ? `    synth.setCustomWave(v, ${customPatchName});\n` : `    synth.setWave(v, ${getWaveTypeMacro(voiceConfig.waveType)});\n`}    synth.setEnv(v, ${voiceConfig.attackMs}, ${voiceConfig.decayMs}, ${voiceConfig.sustain8Bit}, ${voiceConfig.releaseMs});
+${isCustomPatch ? `    synth.setCustomWave(v, ${customPatchName});\n` : isWavetable ? `    synth.setWavetable(v, customWavetable, 256, ${bitDepthMacro});\n` : `    synth.setWave(v, ${getWaveTypeMacro(voiceConfig.waveType)});\n`}    synth.setEnv(v, ${voiceConfig.attackMs}, ${voiceConfig.decayMs}, ${voiceConfig.sustain8Bit}, ${voiceConfig.releaseMs});
     synth.setSmoothEnv(v, ${voiceConfig.smoothEnv ? 'true' : 'false'});
     synth.setPulseWidth(v, ${voiceConfig.pulseWidth8Bit});
     synth.setStartPhase(v, ${voiceConfig.startPhaseDeg});
@@ -120,7 +182,7 @@ ${masterConfig.bus1FXPatch !== BusFXPatch.NONE ? `
   synth.setDSPParam(0, ${masterConfig.dspParam0}); // dp[0]
   synth.setDSPParam(1, ${masterConfig.dspParam1}); // dp[1]
   synth.setDSPParam(2, ${masterConfig.dspParam2}); // dp[2]
-` : ''}
+` : ''}${arpSetupCode}
   // Trigger test chord (Cm7)
   synth.noteOn(0, NOTE_C4, 220);
   synth.noteOn(1, NOTE_DS4, 220);
@@ -129,7 +191,7 @@ ${masterConfig.bus1FXPatch !== BusFXPatch.NONE ? `
 }
 
 void loop() {
-  delay(10);
+${portamentoDemoCode}
 }
 `;
 

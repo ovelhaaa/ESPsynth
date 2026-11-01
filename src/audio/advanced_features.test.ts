@@ -99,3 +99,25 @@ test('Arpeggiator step matrix filters gate-enabled steps and maps CentiHz interv
   assert.strictEqual(activeNotes[1], transposeCentiHz(baseFreq, 7)); // 7st (5th)
   assert.strictEqual(activeNotes[2], transposeCentiHz(baseFreq, 12)); // 12st (Octave)
 });
+
+test('Arpeggiator step matrix preserves 16-step rhythmic time by sending 0 for rests', () => {
+  const baseFreq = NOTES.C3; // 13081 cHz
+  const steps = [0, 12, 0, 7, 10, 7, 12, 0, 3, 7, 12, 7, 0, -12, 0, 12];
+  const activeGates = [true, false, true, true, true, false, true, true, true, false, true, true, true, false, true, true];
+
+  const fullSequence: number[] = [];
+  for (let i = 0; i < 16; i++) {
+    if (activeGates[i]) {
+      fullSequence.push(transposeCentiHz(baseFreq, steps[i]));
+    } else {
+      fullSequence.push(0); // Rest preservation
+    }
+  }
+
+  assert.strictEqual(fullSequence.length, 16);
+  assert.strictEqual(fullSequence[0], baseFreq);
+  assert.strictEqual(fullSequence[1], 0); // Step 1 is a Rest (0 CentiHz)
+  assert.strictEqual(fullSequence[5], 0); // Step 5 is a Rest (0 CentiHz)
+  assert.strictEqual(fullSequence[9], 0); // Step 9 is a Rest (0 CentiHz)
+  assert.strictEqual(fullSequence[13], 0); // Step 13 is a Rest (0 CentiHz)
+});

@@ -35,18 +35,11 @@ interface MasterPanelProps {
 }
 
 export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) => {
-  const [rotorAngle, setRotorAngle] = useState<number>(0);
-
-  // Animated rotor rotation for Leslie visualizer
-  useEffect(() => {
-    if (config.globalDSPPatch === GlobalDSPPatch.DSP_HAMMOND_LESLIE && config.dspParam0 > 0) {
-      const speedMultiplier = config.dspParam0 === 2 ? 14 : 2.5; // Fast (tremolo) vs Slow (chorale)
-      const interval = setInterval(() => {
-        setRotorAngle((prev) => (prev + speedMultiplier) % 360);
-      }, 30);
-      return () => clearInterval(interval);
-    }
-  }, [config.globalDSPPatch, config.dspParam0]);
+  // Native CSS animation duration for Leslie rotors (0% React CPU re-renders)
+  const isLeslieRotorSpinning =
+    config.globalDSPPatch === GlobalDSPPatch.DSP_HAMMOND_LESLIE && config.dspParam0 > 0;
+  const trebleHornDuration = config.dspParam0 === 2 ? '0.15s' : '1.25s';
+  const bassDrumDuration = config.dspParam0 === 2 ? '0.19s' : '1.55s';
 
   const handleGlobalDSPSelect = (patch: GlobalDSPPatch) => {
     if (patch === GlobalDSPPatch.DSP_HAMMOND_LESLIE) {
@@ -794,8 +787,13 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                   <div className="flex flex-col items-center gap-1">
                     <div className="w-12 h-12 rounded-full border-2 border-purple-500/60 bg-slate-950 flex items-center justify-center relative overflow-hidden shadow-inner">
                       <div
-                        className="w-8 h-2 bg-purple-400 rounded-full transition-transform"
-                        style={{ transform: `rotate(${rotorAngle}deg)` }}
+                        className={`w-8 h-2 bg-purple-400 rounded-full origin-center ${
+                          isLeslieRotorSpinning ? 'animate-spin' : ''
+                        }`}
+                        style={{
+                          animationDuration: trebleHornDuration,
+                          animationTimingFunction: 'linear',
+                        }}
                       />
                       <div className="w-2 h-2 rounded-full bg-purple-200 z-10" />
                     </div>
@@ -814,8 +812,13 @@ export const MasterPanel: React.FC<MasterPanelProps> = ({ config, onChange }) =>
                   <div className="flex flex-col items-center gap-1">
                     <div className="w-12 h-12 rounded-full border-2 border-amber-600/60 bg-slate-950 flex items-center justify-center relative overflow-hidden shadow-inner">
                       <div
-                        className="w-10 h-3 bg-amber-500/80 rounded transition-transform"
-                        style={{ transform: `rotate(${rotorAngle * 0.8}deg)` }}
+                        className={`w-10 h-3 bg-amber-500/80 rounded origin-center ${
+                          isLeslieRotorSpinning ? 'animate-spin' : ''
+                        }`}
+                        style={{
+                          animationDuration: bassDrumDuration,
+                          animationTimingFunction: 'linear',
+                        }}
                       />
                       <div className="w-2.5 h-2.5 rounded-full bg-amber-200 z-10" />
                     </div>

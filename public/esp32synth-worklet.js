@@ -196,6 +196,43 @@ class ESP32SynthProcessor extends AudioWorkletProcessor {
           e.synth_setArpeggio(msg.voice, msg.durationMs, this.scratchNotesPtr, notesLen);
         }
         break;
+      case 'SET_WAVETABLE': {
+        const v = msg.voice !== undefined ? msg.voice : 0;
+        const depth = msg.depth !== undefined ? msg.depth : 2; // BITS_16 default
+        const size = msg.size || (msg.samples ? msg.samples.length : 256);
+        let ptr = 0;
+        if (typeof e.synth_getWavetableBuffer === 'function') {
+          ptr = e.synth_getWavetableBuffer(v);
+        } else if (typeof e.malloc === 'function') {
+          if (!this.wtBuffers) this.wtBuffers = {};
+          if (!this.wtBuffers[v]) this.wtBuffers[v] = e.malloc(4096);
+          ptr = this.wtBuffers[v];
+        }
+        if (ptr && msg.samples && e.memory) {
+          this.ensureViews();
+          const mem = new Uint8Array(e.memory.buffer);
+          let rawBytes = null;
+          if (msg.samples instanceof Uint8Array) {
+            rawBytes = msg.samples;
+          } else if (msg.samples instanceof Int16Array) {
+            rawBytes = new Uint8Array(msg.samples.buffer, msg.samples.byteOffset, msg.samples.byteLength);
+          } else if (Array.isArray(msg.samples)) {
+            if (depth === 2) {
+              const i16 = new Int16Array(msg.samples);
+              rawBytes = new Uint8Array(i16.buffer);
+            } else {
+              rawBytes = new Uint8Array(msg.samples);
+            }
+          }
+          if (rawBytes) {
+            mem.set(rawBytes.subarray(0, Math.min(rawBytes.length, 4096)), ptr);
+          }
+          if (typeof e.synth_setWavetable === 'function') {
+            e.synth_setWavetable(v, ptr, size, depth);
+          }
+        }
+        break;
+      }
       case 'DETACH_ARPEGGIO':
         e.synth_detachArpeggio(msg.voice);
         break;

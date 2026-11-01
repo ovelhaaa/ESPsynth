@@ -440,6 +440,24 @@ void ESP32Synth::setSampleLoop(uint16_t voice, LoopMode loopMode, uint32_t loopS
 
 // --- Arpeggiator ---
 
+void ESP32Synth::setArpeggioRaw(uint16_t voice, uint16_t durationMs, const uint32_t* freqs, size_t count) {
+    if (voice >= MAX_VOICES || count == 0 || !freqs) return;
+    if (count > MAX_ARP_NOTES) count = MAX_ARP_NOTES;
+    Voice* v = &voices[voice];
+    for (size_t i = 0; i < count; i++) {
+        v->arpNotes[i] = freqs[i];
+    }
+    v->arpLen         = count;
+    v->arpSpeedMs     = durationMs;
+    v->arpIdx         = 0;
+    v->arpTickCounter = 0;
+    v->arpActive      = true;
+}
+
+void ESP32Synth::setArpeggio(uint16_t voice, uint16_t durationMs, const uint32_t* freqs, size_t count) {
+    setArpeggioRaw(voice, durationMs, freqs, count);
+}
+
 void ESP32Synth::detachArpeggio(uint16_t voice) {
     if (voice < MAX_VOICES) voices[voice].arpActive = false;
 }

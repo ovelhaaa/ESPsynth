@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { WaveType, CustomWavePatch, EnvState } from '../audio/types';
+import { WaveType, CustomWavePatch, EnvState, BitDepth } from '../audio/types';
+import { WavetableEditor } from './WavetableEditor';
 import {
   Sliders,
   Zap,
@@ -50,6 +51,9 @@ interface VoicePanelProps {
   activeEnvLevel?: number;
   activeEnvState?: EnvState;
   onOpenCodeExport?: () => void;
+  customWavetable?: number[];
+  wavetableDepth?: BitDepth;
+  onWavetableChange?: (samples: number[], depth: BitDepth) => void;
 }
 
 interface AlgorithmCardDef {
@@ -178,6 +182,9 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
   activeEnvLevel,
   activeEnvState,
   onOpenCodeExport,
+  customWavetable,
+  wavetableDepth,
+  onWavetableChange,
 }) => {
   const [mutateCategory, setMutateCategory] = useState<'any' | 'lead' | 'bass' | 'pad' | 'fm' | 'chiptune'>('any');
 
@@ -510,25 +517,35 @@ export const VoicePanel: React.FC<VoicePanelProps> = ({
 
           <div className="space-y-3.5 bg-slate-950/50 p-4 rounded-xl border border-slate-800">
             {config.customPatch === CustomWavePatch.BASIC ? (
-              <div>
-                <label className="text-[11px] font-mono text-slate-300 font-semibold mb-1 block">
-                  Hardware Integer Waveform (WaveType)
-                </label>
-                <select
-                  value={config.waveType}
-                  onChange={(e) => {
-                    const val = Number(e.target.value) as WaveType;
-                    onChange({ waveType: val, customPatch: CustomWavePatch.BASIC });
-                  }}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value={WaveType.WAVE_SAW}>WAVE_SAW (-3) - Raw Sawtooth</option>
-                  <option value={WaveType.WAVE_PULSE}>WAVE_PULSE (-4) - Pulse / Square Wave</option>
-                  <option value={WaveType.WAVE_SINE}>WAVE_SINE (-1) - Interpolated Sine LUT</option>
-                  <option value={WaveType.WAVE_TRIANGLE}>WAVE_TRIANGLE (-2) - Triangle Wave</option>
-                  <option value={WaveType.WAVE_NOISE}>WAVE_NOISE (-5) - Linear PRNG Noise</option>
-                </select>
-              </div>
+              <>
+                <div>
+                  <label className="text-[11px] font-mono text-slate-300 font-semibold mb-1 block">
+                    Hardware Integer Waveform (WaveType)
+                  </label>
+                  <select
+                    value={config.waveType}
+                    onChange={(e) => {
+                      const val = Number(e.target.value) as WaveType;
+                      onChange({ waveType: val, customPatch: CustomWavePatch.BASIC });
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value={WaveType.WAVE_SAW}>WAVE_SAW (-3) - Raw Sawtooth</option>
+                    <option value={WaveType.WAVE_PULSE}>WAVE_PULSE (-4) - Pulse / Square Wave</option>
+                    <option value={WaveType.WAVE_SINE}>WAVE_SINE (-1) - Interpolated Sine LUT</option>
+                    <option value={WaveType.WAVE_TRIANGLE}>WAVE_TRIANGLE (-2) - Triangle Wave</option>
+                    <option value={WaveType.WAVE_NOISE}>WAVE_NOISE (-5) - Linear PRNG Noise</option>
+                    <option value={WaveType.WAVE_WAVETABLE}>WAVE_WAVETABLE (1) - Custom Wavetable Draw Studio</option>
+                  </select>
+                </div>
+                {config.waveType === WaveType.WAVE_WAVETABLE && (
+                  <WavetableEditor
+                    samples={customWavetable || []}
+                    bitDepth={wavetableDepth ?? BitDepth.BITS_16}
+                    onChange={onWavetableChange || (() => {})}
+                  />
+                )}
+              </>
             ) : (
               <div className="p-3 bg-emerald-950/20 border border-emerald-800/40 rounded-lg">
                 <span className="text-[11px] font-mono text-emerald-300 font-bold block mb-1">

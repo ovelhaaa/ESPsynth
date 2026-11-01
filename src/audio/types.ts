@@ -14,6 +14,12 @@ export enum WaveType {
   WAVE_CUSTOM = 4,
 }
 
+export enum BitDepth {
+  BITS_4 = 0,
+  BITS_8 = 1,
+  BITS_16 = 2,
+}
+
 export enum EnvState {
   ENV_IDLE = 0,
   ENV_ATTACK = 1,

@@ -472,6 +472,8 @@ public:
     void setSampleLoop(uint16_t voice, LoopMode loopMode, uint32_t loopStart, uint32_t loopEnd);
 
     // --- Arpeggiator ---
+    void setArpeggioRaw(uint16_t voice, uint16_t durationMs, const uint32_t* freqs, size_t count);
+    void setArpeggio(uint16_t voice, uint16_t durationMs, const uint32_t* freqs, size_t count);
     template <typename... Args>
     void setArpeggio(uint16_t voice, uint16_t durationMs, Args... freqs);
     void detachArpeggio(uint16_t voice);
@@ -637,23 +639,8 @@ private:
 
 template <typename... Args>
 void ESP32Synth::setArpeggio(uint16_t voice, uint16_t durationMs, Args... freqs) {
-    if (voice >= MAX_VOICES) return;
-
     uint32_t tempNotes[] = { (uint32_t)freqs... };
-    size_t count = sizeof...(freqs);
-    if (count > MAX_ARP_NOTES) count = MAX_ARP_NOTES;
-
-    Voice* v = &voices[voice];
-    for (size_t i = 0; i < count; i++) {
-        v->arpNotes[i] = tempNotes[i];
-    }
-    v->arpLen         = count;
-    v->arpSpeedMs     = durationMs;
-    v->arpIdx         = 0;
-    v->arpTickCounter = 0;
-    v->arpActive      = true;
+    setArpeggioRaw(voice, durationMs, tempNotes, sizeof...(freqs));
 }
 
 #endif // ESP32_SYNTH_H
-
-// yes, this is a random comment lol.

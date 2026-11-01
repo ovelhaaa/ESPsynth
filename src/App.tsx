@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ESP32SynthEngine } from './audio/ESP32SynthEngine';
-import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry } from './audio/types';
+import { WaveType, EnvState, CustomWavePatch, BusFXPatch, GlobalDSPPatch, VoiceTelemetry, BitDepth } from './audio/types';
 import { NOTES, midiToCentiHz, transposeCentiHz } from './audio/notes';
 import { useWebMidi } from './audio/useWebMidi';
 import { Header } from './components/Header';
@@ -55,6 +55,23 @@ export default function App() {
     dspParam2: 120,
     dspParam3: 150,
   });
+  // Custom Wavetable Draw Studio State
+  const [customWavetable, setCustomWavetable] = useState<number[]>(() => {
+    const arr = new Array(256);
+    for (let i = 0; i < 256; i++) {
+      const phi = (i / 256) * Math.PI * 2;
+      const v = Math.sin(phi) + 0.5 * Math.sin(2 * phi) + 0.25 * Math.sin(3 * phi);
+      arr[i] = Math.round((v / 1.75) * 32760);
+    }
+    return arr;
+  });
+  const [wavetableDepth, setWavetableDepth] = useState<BitDepth>(BitDepth.BITS_16);
+
+  const customWavetableRef = useRef(customWavetable);
+  customWavetableRef.current = customWavetable;
+  const wavetableDepthRef = useRef(wavetableDepth);
+  wavetableDepthRef.current = wavetableDepth;
+
 
   // Voice Configuration State
   const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({
@@ -109,6 +126,10 @@ export default function App() {
       engine.setVibrato(v, cfg.vibratoRateCentiHz, cfg.vibratoDepthCentiHz);
       engine.setTremolo(v, cfg.tremoloRateCentiHz, cfg.tremoloDepth8Bit);
       engine.setVoiceBus(v, cfg.targetBus);
+
+      if (cfg.waveType === WaveType.WAVE_WAVETABLE && cfg.customPatch === CustomWavePatch.BASIC) {
+        engine.setWavetable(customWavetableRef.current, customWavetableRef.current.length, wavetableDepthRef.current, v);
+      }
 
       // Custom parameters (cp[0], cp[1], cp[2], cp[3])
       engine.setCustomParam(v, 0, cfg.customParam0);
@@ -213,21 +234,45 @@ export default function App() {
     handleVoiceChange({ vibratoDepthCentiHz: depth });
   }, [voiceConfig]);
 
-  const handleVoiceChange = (updated: Partial<VoiceConfig>) => {
-    const newCfg = { ...voiceConfig, ...updated };
-    setVoiceConfig(newCfg);
-    if (isAudioRunning) {
-      applyVoiceConfig(newCfg);
-    }
-  };
+  const handleVoiceChange = useCallback((updated: Partial<VoiceConfig>) => {
+    setVoiceConfig((prev) => {
+      const newCfg = { ...prev, ...updated };
+      if (isAudioRunning) {
+        applyVoiceConfig(newCfg);
+      }
+      return newCfg;
+    });
+  }, [isAudioRunning, applyVoiceConfig]);
 
-  const handleMasterChange = (updated: Partial<MasterConfig>) => {
-    const newCfg = { ...masterConfig, ...updated };
-    setMasterConfig(newCfg);
-    if (isAudioRunning) {
-      applyMasterConfig(newCfg);
+  const handleMasterChange = useCallback((updated: Partial<MasterConfig>) => {
+    setMasterConfig((prev) => {
+      const newCfg = { ...prev, ...updated };
+      if (isAudioRunning) {
+        applyMasterConfig(newCfg);
+      }
+      return newCfg;
+    });
+  }, [isAudioRunning, applyMasterConfig]);
+
+  const handleWavetableChange = useCallback((samples: number[], depth: BitDepth) => {
+    setCustomWavetable(samples);
+    setWavetableDepth(depth);
+    if (isAudioRunning && voiceConfig.waveType === WaveType.WAVE_WAVETABLE && voiceConfig.customPatch === CustomWavePatch.BASIC) {
+      engine.setWavetable(samples, samples.length, depth);
     }
-  };
+  }, [isAudioRunning, voiceConfig.waveType, voiceConfig.customPatch]);
+
+  const handleSimulateGlide = useCallback(() => {
+    if (!isAudioRunning) {
+      toggleAudio();
+    }
+    const duration = Math.max(50, voiceConfig.portamentoMs);
+    engine.noteOn(0, NOTES.C3, 220);
+    engine.slideFreq(0, NOTES.C3, NOTES.C4, duration);
+    setTimeout(() => {
+      engine.noteOff(0);
+    }, duration + 300);
+  }, [isAudioRunning, voiceConfig.portamentoMs, toggleAudio]);
 
   // Note Triggering (Keyboard & Web MIDI)
   const handleNoteOn = useCallback((midiNote: number, freqCentiHz: number, velocity: number = 255) => {
@@ -242,12 +287,14 @@ export default function App() {
     }
     lastFreqRef.current = freqCentiHz;
 
-    // Hardware Arpeggiator integration (setArpeggio)
+    // Hardware Arpeggiator integration (setArpeggio with Rest preservation)
     if (arpConfig.enabled) {
       const activeStepsWithFreqs: number[] = [];
       for (let i = 0; i < arpConfig.stepCount; i++) {
         if (arpConfig.activeSteps[i]) {
           activeStepsWithFreqs.push(transposeCentiHz(freqCentiHz, arpConfig.steps[i] ?? 0));
+        } else {
+          activeStepsWithFreqs.push(0); // Rhythmic rest preservation
         }
       }
 
@@ -322,6 +369,8 @@ export default function App() {
       for (let i = 0; i < arpConfig.stepCount; i++) {
         if (arpConfig.activeSteps[i]) {
           activeStepsWithFreqs.push(transposeCentiHz(baseFreq, arpConfig.steps[i] ?? 0));
+        } else {
+          activeStepsWithFreqs.push(0); // Rhythmic rest preservation
         }
       }
       if (activeStepsWithFreqs.length > 0) {
@@ -344,6 +393,8 @@ export default function App() {
       for (let i = 0; i < newCfg.stepCount; i++) {
         if (newCfg.activeSteps[i]) {
           activeStepsWithFreqs.push(transposeCentiHz(baseFreq, newCfg.steps[i] ?? 0));
+        } else {
+          activeStepsWithFreqs.push(0); // Rhythmic rest preservation
         }
       }
       if (activeStepsWithFreqs.length > 0) {
@@ -690,6 +741,9 @@ export default function App() {
           activeEnvLevel={activeEnvLevel}
           activeEnvState={activeEnvState}
           onOpenCodeExport={() => setIsCodeExportOpen(true)}
+          customWavetable={customWavetable}
+          wavetableDepth={wavetableDepth}
+          onWavetableChange={handleWavetableChange}
         />
 
         {/* 2. Hardware Arpeggiator & Tracker Step Sequencer */}
@@ -701,6 +755,7 @@ export default function App() {
           onPortamentoChange={(ms) => handleVoiceChange({ portamentoMs: ms })}
           onAuditionArp={handleAuditionArp}
           isAuditioning={isAuditioningArp}
+          onSimulateGlide={handleSimulateGlide}
         />
 
         {/* 3. Master Hardware Output, Modular Bus 1 Filter & Stompbox Pedalboard */}
@@ -725,6 +780,9 @@ export default function App() {
         onClose={() => setIsCodeExportOpen(false)}
         voiceConfig={voiceConfig}
         masterConfig={masterConfig}
+        arpConfig={arpConfig}
+        customWavetable={customWavetable}
+        wavetableDepth={wavetableDepth}
       />
 
       {/* Technical Footer */}

@@ -12,7 +12,7 @@
  *   -s ENVIRONMENT=worker \
  *   -s ALLOW_MEMORY_GROWTH=1 \
  *   -s INITIAL_MEMORY=33554432 \
- *   -s EXPORTED_FUNCTIONS="['_malloc','_free','_process_audio_block','_synth_alloc_float_buffer','_synth_init','_synth_end','_synth_setSampleRate','_synth_getSampleRate','_synth_setControlRateHz','_synth_setMasterVolume','_synth_getMasterVolume','_synth_setVolDepthBase','_synth_setMasterBitcrush','_synth_getCPULoad','_synth_renderStereo','_synth_renderMono','_synth_noteOn','_synth_noteOff','_synth_setFrequency','_synth_setVolume','_synth_setWave','_synth_setPulseWidthBitDepth','_synth_setPulseWidth','_synth_setEnv','_synth_setSmoothEnv','_synth_setStartPhase','_synth_setCurrentPhase','_synth_setVibrato','_synth_setVibratoPhase','_synth_setTremolo','_synth_setTremoloPhase','_synth_slideFreq','_synth_slideFreqTo','_synth_slideVol','_synth_slideVolTo','_synth_setCustomWavePatch','_synth_setCustomParam','_synth_setVoiceBus','_synth_setBusFXPatch','_synth_setBusFXParam','_synth_setBusMix','_synth_setCustomDSPPatch','_synth_setDSPParam','_synth_setArpeggio','_synth_detachArpeggio','_synth_getFrequencyCentiHz','_synth_getVolume','_synth_getVolume8Bit','_synth_getEnv8Bit','_synth_getOutput8Bit','_synth_isVoiceActive','_synth_getEnvState','_synth_getWaveType','_synth_getPhase','_synth_getPulseWidth']" \
+ *   -s EXPORTED_FUNCTIONS="['_malloc','_free','_process_audio_block','_synth_alloc_float_buffer','_synth_init','_synth_end','_synth_setSampleRate','_synth_getSampleRate','_synth_setControlRateHz','_synth_setMasterVolume','_synth_getMasterVolume','_synth_setVolDepthBase','_synth_setMasterBitcrush','_synth_getCPULoad','_synth_renderStereo','_synth_renderMono','_synth_noteOn','_synth_noteOff','_synth_setFrequency','_synth_setVolume','_synth_setWave','_synth_setPulseWidthBitDepth','_synth_setPulseWidth','_synth_setEnv','_synth_setSmoothEnv','_synth_setStartPhase','_synth_setCurrentPhase','_synth_setVibrato','_synth_setVibratoPhase','_synth_setTremolo','_synth_setTremoloPhase','_synth_slideFreq','_synth_slideFreqTo','_synth_slideVol','_synth_slideVolTo','_synth_setCustomWavePatch','_synth_setCustomParam','_synth_setVoiceBus','_synth_setBusFXPatch','_synth_setBusFXParam','_synth_setBusMix','_synth_setCustomDSPPatch','_synth_setDSPParam','_synth_setArpeggio','_synth_detachArpeggio','_synth_setWavetable','_synth_getWavetableBuffer','_synth_getFrequencyCentiHz','_synth_getVolume','_synth_getVolume8Bit','_synth_getEnv8Bit','_synth_getOutput8Bit','_synth_isVoiceActive','_synth_getEnvState','_synth_getWaveType','_synth_getPhase','_synth_getPulseWidth']" \
  *   -s EXPORTED_RUNTIME_METHODS="['ccall','cwrap','HEAPF32','HEAP16','HEAPU8']" \
  *   -I wasm/include -I esp32synth-src \
  *   -DENABLE_MP3=0 \
@@ -455,16 +455,26 @@ void synth_setDSPParam(uint8_t paramId, int16_t value) {
 
 EMSCRIPTEN_KEEPALIVE
 void synth_setArpeggio(uint16_t voice, uint16_t durationMs, const uint32_t* notes, uint8_t count) {
-    if (voice >= MAX_VOICES || count == 0) return;
+    if (voice >= MAX_VOICES || count == 0 || !notes) return;
     if (count > MAX_ARP_NOTES) count = MAX_ARP_NOTES;
-    if (count == 1) synth.setArpeggio(voice, durationMs, notes[0]);
-    else if (count == 2) synth.setArpeggio(voice, durationMs, notes[0], notes[1]);
-    else if (count == 3) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2]);
-    else if (count == 4) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2], notes[3]);
-    else if (count == 5) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2], notes[3], notes[4]);
-    else if (count == 6) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2], notes[3], notes[4], notes[5]);
-    else if (count == 7) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2], notes[3], notes[4], notes[5], notes[6]);
-    else if (count >= 8) synth.setArpeggio(voice, durationMs, notes[0], notes[1], notes[2], notes[3], notes[4], notes[5], notes[6], notes[7]);
+    synth.setArpeggioRaw(voice, durationMs, notes, count);
+}
+
+// Wavetable
+static uint8_t s_voiceWavetableBuffers[MAX_VOICES][4096];
+
+EMSCRIPTEN_KEEPALIVE
+uint8_t* synth_getWavetableBuffer(uint16_t voice) {
+    if (voice >= MAX_VOICES) return nullptr;
+    return s_voiceWavetableBuffers[voice];
+}
+
+EMSCRIPTEN_KEEPALIVE
+void synth_setWavetable(uint16_t voice, const void* data, uint32_t size, uint8_t depth) {
+    if (voice >= MAX_VOICES) return;
+    if (!data) data = s_voiceWavetableBuffers[voice];
+    synth.setWavetable(voice, data, size, (BitDepth)depth);
+    synth.setWave(voice, WAVE_WAVETABLE);
 }
 
 EMSCRIPTEN_KEEPALIVE
